@@ -284,4 +284,23 @@ module.exports = {
   getState,
   setState,
   migrateSchema,
+  hasGroupPresentation,
+  markGroupPresentation,
+  removeGroupPresentation,
 };
+
+function hasGroupPresentation(groupId) {
+  const db = getDb();
+  const row = db.prepare(`SELECT value FROM bot_state WHERE key = ?`).get(`presented_${groupId}`);
+  return !!row;
+}
+
+function markGroupPresentation(groupId) {
+  const db = getDb();
+  db.prepare(`INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)`).run(`presented_${groupId}`, '1');
+}
+
+function removeGroupPresentation(groupId) {
+  const db = getDb();
+  db.prepare(`DELETE FROM bot_state WHERE key = ?`).run(`presented_${groupId}`);
+}

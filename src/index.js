@@ -11,7 +11,7 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 const http = require('http');
 
-const { upsertUser, getDb, updateLevel, removeUser, isUserMuted } = require('./db');
+const { upsertUser, getDb, updateLevel, removeUser, isUserMuted, hasGroupPresentation, markGroupPresentation, removeGroupPresentation } = require('./db');
 const { getLevelName, getLevelEmoji } = require('./scheduler/ranking');
 const { getWelcomeMessage, sendBotPresentation } = require('./handlers/welcome');
 const { getSatanResponse } = require('./handlers/satan-dm');
@@ -134,6 +134,17 @@ async function startBot() {
         // Suscribir presencia para mostrar "está escribiendo..." en grupos
         for (const gid of Object.keys(groups)) {
           try { await sock.presenceSubscribe(gid); } catch (_) {}
+        }
+        // Detectar grupos sin presentación (bot fue añadido durante un reinicio)
+        for (const gid of Object.keys(groups)) {
+          if (!hasGroupPresentation(gid)) {
+            console.log(`[PRESENTACION-STARTUP] grupo sin presentación detectado: ${gid}`);
+            await new Promise(r => setTimeout(r, 4000));
+            sendBotPresentation(sock, gid)
+              .then(() => markGroupPresentation(gid))
+              .catch(e => console.error('[PRESENTACION-STARTUP]', e.message));
+            await new Promise(r => setTimeout(r, 2000));
+          }
         }
       } catch (_) {
         global._knownGroups = global._knownGroups || new Set();
@@ -442,7 +453,9 @@ async function startBot() {
       // Owner confirmado o adder desconocido — presentación épica
       console.log(`[PRESENTACION] bot agregado al grupo ${update.id}`);
       await new Promise(r => setTimeout(r, 3000));
-      sendBotPresentation(sock, update.id).catch(e => console.error('[PRESENTACION]', e.message));
+      sendBotPresentation(sock, update.id)
+        .then(() => markGroupPresentation(update.id))
+        .catch(e => console.error('[PRESENTACION]', e.message));
       return;
     }
 
@@ -453,7 +466,11 @@ async function startBot() {
         (botLidNum && p.includes(botLidNum)) ||
         p === botJid
       );
-      if (botRemoved) global._knownGroups?.delete(update.id);
+      if (botRemoved) {
+        global._knownGroups?.delete(update.id);
+        removeGroupPresentation(update.id);
+        console.log(`[BOT-REMOVED] saliendo de ${update.id}, presentación reseteada`);
+      }
       for (const participantJid of update.participants) {
         removeUser(participantJid, update.id);
       }
