@@ -43,6 +43,33 @@ getDb();
 
 const logger = pino({ level: 'silent' });
 
+// Servidor HTTP para servir el QR y la API interna — arranca inmediatamente
+const _httpServer = (() => {
+  const PORT = process.env.PORT || 3131;
+  const server = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/qr') {
+      const qrPath = path.join(__dirname, '../qr.png');
+      if (require('fs').existsSync(qrPath)) {
+        const img = require('fs').readFileSync(qrPath);
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' });
+        res.end(img);
+      } else {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<h2 style="font-family:sans-serif;text-align:center;margin-top:20%">QR generándose... recarga en 3 segundos</h2><script>setTimeout(()=>location.reload(),3000)</script>');
+      }
+      return;
+    }
+    // Para el resto de rutas POST (API interna) las maneja el servidor completo
+    // Este servidor solo atiende GET /qr antes de conectarse
+    res.writeHead(503); res.end('bot iniciando...');
+  });
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`\x1b[1;36m🌐 Servidor QR en puerto ${PORT}\x1b[0m`);
+  });
+  server.on('error', () => {}); // ignorar si ya está en uso
+  return server;
+})();
+
 async function startBot() {
   let botReady = false; // solo procesar bienvenidas cuando el socket esté listo
 
@@ -307,8 +334,11 @@ async function startBot() {
           }
         });
         const PORT = process.env.PORT || 3131;
-        server.listen(PORT, '0.0.0.0', () => {
-          console.log(`\x1b[1;36m🌐 API en puerto ${PORT}\x1b[0m`);
+        // Cerrar el servidor QR simple y reemplazarlo con la API completa
+        _httpServer.close(() => {
+          server.listen(PORT, '0.0.0.0', () => {
+            console.log(`\x1b[1;36m🌐 API completa en puerto ${PORT}\x1b[0m`);
+          });
         });
       }
     }
