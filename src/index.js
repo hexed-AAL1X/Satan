@@ -183,6 +183,24 @@ async function startBot() {
             return;
           }
 
+          // GET de prueba para endpoints test (desde navegador)
+          if (req.method === 'GET' && url.startsWith('/test/')) {
+            const jidParam = GROUP_ID;
+            if (url === '/test/presentacion') {
+              sendBotPresentation(sock, jidParam).catch(console.error);
+              res.writeHead(200); res.end('presentacion enviada a ' + jidParam); return;
+            }
+            if (url === '/test/buenos-dias') {
+              getBuenosDias().then(msg => sendWithTyping(sock, jidParam, msg)).catch(console.error);
+              res.writeHead(200); res.end('buenos dias enviados'); return;
+            }
+            if (url === '/test/contenido') {
+              sendDailyContent(sock, jidParam).catch(console.error);
+              res.writeHead(200); res.end('contenido enviado'); return;
+            }
+            res.writeHead(200); res.end('endpoint de test: ' + url); return;
+          }
+
           if (req.method !== 'POST') { res.writeHead(404); res.end(); return; }
 
           try {
