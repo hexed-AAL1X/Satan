@@ -1,6 +1,5 @@
 [build]
-builder = "nixpacks"
+builder = "dockerfile"
 
 [deploy]
-startCommand = "node src/index.js"
 restartPolicyType = "always"
