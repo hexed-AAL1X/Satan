@@ -307,9 +307,8 @@ async function startBot() {
           }
         });
         const PORT = process.env.PORT || 3131;
-        const HOST = process.env.PORT ? '0.0.0.0' : '127.0.0.1'; // Railway expone 0.0.0.0
-        server.listen(PORT, HOST, () => {
-          console.log(`\x1b[1;36m🌐 API en puerto ${PORT} (${HOST})\x1b[0m`);
+        server.listen(PORT, '0.0.0.0', () => {
+          console.log(`\x1b[1;36m🌐 API en puerto ${PORT}\x1b[0m`);
         });
       }
     }
