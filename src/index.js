@@ -135,8 +135,23 @@ async function startBot() {
         }
 
         const server = http.createServer(async (req, res) => {
-          if (req.method !== 'POST') { res.writeHead(404); res.end(); return; }
           const url = req.url;
+
+          // GET /qr — sirve el QR como imagen PNG para vinculación remota
+          if (req.method === 'GET' && url === '/qr') {
+            const qrPath = path.join(__dirname, '../qr.png');
+            if (require('fs').existsSync(qrPath)) {
+              const img = require('fs').readFileSync(qrPath);
+              res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' });
+              res.end(img);
+            } else {
+              res.writeHead(200, { 'Content-Type': 'text/html' });
+              res.end('<h2>QR no disponible aún — espera unos segundos y recarga</h2><script>setTimeout(()=>location.reload(),3000)</script>');
+            }
+            return;
+          }
+
+          if (req.method !== 'POST') { res.writeHead(404); res.end(); return; }
 
           try {
             const body = await readBody(req);
@@ -291,8 +306,10 @@ async function startBot() {
             console.error('[API SERVER]', err.message);
           }
         });
-        server.listen(3131, '127.0.0.1', () => {
-          console.log('\x1b[1;36m🌐 API interna en puerto 3131\x1b[0m');
+        const PORT = process.env.PORT || 3131;
+        const HOST = process.env.PORT ? '0.0.0.0' : '127.0.0.1'; // Railway expone 0.0.0.0
+        server.listen(PORT, HOST, () => {
+          console.log(`\x1b[1;36m🌐 API en puerto ${PORT} (${HOST})\x1b[0m`);
         });
       }
     }
