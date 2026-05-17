@@ -374,9 +374,16 @@ async function startBot() {
     if (!botReady && update.action === 'add') return; // ignorar add antes de estar listo
 
     const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : '';
-    const botLidJid = sock.user?.id || '';
+    const botPhoneNum = BOT_NUMBER || (sock.user?.id ? sock.user.id.split(':')[0].split('@')[0] : '');
+    const botLidNum = global._botLid || '';
     const botWasAdded = update.action === 'add' &&
-      update.participants.some(p => p === botJid || p === botLidJid || p.includes(botJid.split('@')[0]));
+      update.participants.some(p =>
+        p === botJid ||
+        (botPhoneNum && p.includes(botPhoneNum)) ||
+        (botLidNum && p.includes(botLidNum))
+      );
+    console.log(`[PART-CHECK] botJid=${botJid} botPhone=${botPhoneNum} botLid=${botLidNum} participants=${update.participants?.join(',')}`);
+
 
     if (botWasAdded) {
       const adderJid = update.author || '';
