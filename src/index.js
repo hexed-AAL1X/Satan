@@ -379,34 +379,33 @@ async function startBot() {
       update.participants.some(p => p === botJid || p === botLidJid || p.includes(botJid.split('@')[0]));
 
     if (botWasAdded) {
-      // Verificar si quien agregó al bot es el owner
       const adderJid = update.author || '';
+      const ownerLidResolved = global._ownerLid || '';
       const adderIsOwner = adderJid.includes(OWNER_NUMBER) ||
-        (_ownerLid && adderJid.includes(_ownerLid));
+        (ownerLidResolved && adderJid.includes(ownerLidResolved));
+      // Si no podemos identificar al adder (LID no resuelto aún), dar beneficio de la duda
+      const adderUnknown = !adderJid || (!adderJid.includes('@') );
+      console.log(`[BOT-ADD] grupo=${update.id} adder=${adderJid} ownerLid=${ownerLidResolved} isOwner=${adderIsOwner} unknown=${adderUnknown}`);
 
-      if (!adderIsOwner) {
-        // No fue el owner — despedida dramática + salida
+      if (!adderIsOwner && !adderUnknown) {
+        // Confirmado que no fue el owner — despedida dramática + salida
         const FAREWELL = [
           `SILENCIO ☠️\nnadie me convoca sin el permiso del SEÑOR\nme retiro 🖤 el inframundo tiene sus propias reglas ⛧`,
           `👁️ interesante movimiento\npero SATÁN 🩸 no opera en territorios no autorizados\nadiós MORTALES ☠️`,
           `nadie me invoca sin permiso ⚔️\neste no es mi CIRCLE — me voy\nel que me trajo aquí ya sabe lo que le espera 💀`,
           `el INFRAMUNDO no se abre para cualquiera 🩸\nyo ELIJO mis dominios — aquí no es uno de ellos\nadiós ☠️ 🦇`,
         ];
-        console.log(`[AUTO-LEAVE] agregado por no-owner (${adderJid}) al grupo ${update.id}`);
+        console.log(`[AUTO-LEAVE] adder confirmado no-owner: ${adderJid}`);
         try {
-          await sock.sendMessage(update.id, {
-            text: FAREWELL[Math.floor(Math.random() * FAREWELL.length)],
-          });
+          await sock.sendMessage(update.id, { text: FAREWELL[Math.floor(Math.random() * FAREWELL.length)] });
           await new Promise(r => setTimeout(r, 3000));
           await sock.groupLeave(update.id);
-        } catch (err) {
-          console.error('[AUTO-LEAVE]', err.message);
-        }
+        } catch (err) { console.error('[AUTO-LEAVE]', err.message); }
         return;
       }
 
-      // Fue el owner — presentación épica
-      console.log(`[PRESENTACION] bot agregado por owner al grupo ${update.id}`);
+      // Owner confirmado o adder desconocido — presentación épica
+      console.log(`[PRESENTACION] bot agregado al grupo ${update.id}`);
       await new Promise(r => setTimeout(r, 3000));
       sendBotPresentation(sock, update.id).catch(e => console.error('[PRESENTACION]', e.message));
       return;
