@@ -129,11 +129,15 @@ async function startBot() {
         console.log('\n\x1b[1;36m📋 GRUPOS:\x1b[0m');
         Object.values(groups).forEach(g => console.log(`  • ${g.subject.padEnd(30)} → ${g.id}`));
         console.log('');
+        // Guardar grupos conocidos para detectar cuando el bot sea añadido a uno nuevo
+        global._knownGroups = global._knownGroups || new Set(Object.keys(groups));
         // Suscribir presencia para mostrar "está escribiendo..." en grupos
         for (const gid of Object.keys(groups)) {
           try { await sock.presenceSubscribe(gid); } catch (_) {}
         }
-      } catch (_) {}
+      } catch (_) {
+        global._knownGroups = global._knownGroups || new Set();
+      }
       setupScheduler(sock);
 
       // Servidor HTTP interno — solo arrancar una vez
@@ -377,16 +381,21 @@ async function startBot() {
     const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : '';
     const botPhoneNum = BOT_NUMBER || (sock.user?.id ? sock.user.id.split(':')[0].split('@')[0] : '');
     const botLidNum = global._botLid || '';
-    const botWasAdded = update.action === 'add' &&
-      update.participants.some(p =>
-        p === botJid ||
-        (botPhoneNum && p.includes(botPhoneNum)) ||
-        (botLidNum && p.includes(botLidNum))
-      );
-    console.log(`[PART-CHECK] botJid=${botJid} botPhone=${botPhoneNum} botLid=${botLidNum} participants=${update.participants?.join(',')}`);
-
+    // Método 1: comparar por JID/LID
+    const botInParticipants = update.participants.some(p =>
+      p === botJid ||
+      (botPhoneNum && p.includes(botPhoneNum)) ||
+      (botLidNum && p.includes(botLidNum))
+    );
+    // Método 2: el grupo es nuevo (no estaba en los grupos conocidos al arrancar)
+    const knownGroups = global._knownGroups || new Set();
+    const isNewGroup = update.action === 'add' && !knownGroups.has(update.id);
+    const botWasAdded = update.action === 'add' && (botInParticipants || isNewGroup);
+    console.log(`[PART-CHECK] botJid=${botJid} botPhone=${botPhoneNum} botLid=${botLidNum} participants=${update.participants?.join(',')} botInP=${botInParticipants} isNewGroup=${isNewGroup}`);
 
     if (botWasAdded) {
+      // Registrar el grupo como conocido
+      knownGroups.add(update.id);
       const adderJid = update.author || '';
       const ownerLidResolved = global._ownerLid || '';
       const adderIsOwner = adderJid.includes(OWNER_NUMBER) ||
@@ -421,6 +430,12 @@ async function startBot() {
 
     // Eliminar de DB cuando alguien sale o es expulsado
     if (update.action === 'remove' || update.action === 'leave') {
+      const botRemoved = update.participants.some(p =>
+        (botPhoneNum && p.includes(botPhoneNum)) ||
+        (botLidNum && p.includes(botLidNum)) ||
+        p === botJid
+      );
+      if (botRemoved) global._knownGroups?.delete(update.id);
       for (const participantJid of update.participants) {
         removeUser(participantJid, update.id);
       }
