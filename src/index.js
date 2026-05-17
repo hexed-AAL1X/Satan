@@ -551,12 +551,21 @@ async function startBot() {
       // Detectar @menciones igual para usarlas en respuesta
       const botNumber = sock.user?.id?.split(':')[0] || '';
       const botLid = global._botLid || (sock.user?.lid?.split(':')[0] ?? '');
-      const mentionedJids = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+      const ctxInfo = rawMsg?.extendedTextMessage?.contextInfo ||
+        msg.message?.extendedTextMessage?.contextInfo || {};
+      const mentionedJids = ctxInfo.mentionedJid || [];
       const isMentioned = mentionedJids.some(j =>
         (botNumber && j.includes(botNumber)) ||
         (botLid && j.includes(botLid))
-      ) || (botNumber && text.includes('@' + botNumber));
-      if (isGroup) updateLastMessage();
+      ) || (botNumber && text.includes('@' + botNumber))
+        || text.toLowerCase().includes('@satán')
+        || text.toLowerCase().includes('@satan');
+      if (isGroup) {
+        updateLastMessage();
+        if (mentionedJids.length > 0 || text.includes('@')) {
+          console.log(`[MENTION] text="${text}" mentionedJids=${JSON.stringify(mentionedJids)} botNum=${botNumber} botLid=${botLid} isMentioned=${isMentioned}`);
+        }
+      }
 
       // Silenciar usuario si está muteado: borrar su mensaje y no procesar
       if (isGroup && isUserMuted(senderJid, jid)) {
