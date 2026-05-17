@@ -418,8 +418,6 @@ async function startBot() {
       return;
     }
 
-    if (GROUP_ID && update.id !== GROUP_ID) return;
-
     // Eliminar de DB cuando alguien sale o es expulsado
     if (update.action === 'remove' || update.action === 'leave') {
       for (const participantJid of update.participants) {
@@ -539,8 +537,9 @@ async function startBot() {
         continue;
       }
 
-      // Ignorar mensajes de grupos que no sean el configurado
-      // EXCEPCIÓN: si el bot es @mencionado en cualquier grupo, sí responde
+      // El bot opera en TODOS los grupos donde esté
+      // Solo se usa GROUP_ID como grupo principal para scheduler/ranking
+      // Detectar @menciones igual para usarlas en respuesta
       const botNumber = sock.user?.id?.split(':')[0] || '';
       const botLid = global._botLid || (sock.user?.lid?.split(':')[0] ?? '');
       const mentionedJids = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
@@ -548,8 +547,6 @@ async function startBot() {
         (botNumber && j.includes(botNumber)) ||
         (botLid && j.includes(botLid))
       ) || (botNumber && text.includes('@' + botNumber));
-
-      if (isGroup && GROUP_ID && jid !== GROUP_ID && !isMentioned) continue;
       if (isGroup) updateLastMessage();
 
       // Silenciar usuario si está muteado: borrar su mensaje y no procesar
