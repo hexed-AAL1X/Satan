@@ -1,0 +1,6 @@
+node_modules/
+auth_info_baileys/
+.env
+*.log
+qr.png
+satan_bot.db

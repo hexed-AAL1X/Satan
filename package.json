@@ -1,0 +1,24 @@
+{
+  "name": "metal-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp bot para el grupo de metal - The Black Circle",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "axios": "^1.9.0",
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^16.5.0",
+    "groq-sdk": "^1.2.0",
+    "node-cron": "^3.0.3",
+    "pino": "^9.7.0",
+    "pm2": "^7.0.1",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
