@@ -26,6 +26,7 @@ const { sendWithTyping } = require('./utils/typing');
 const AUTH_DIR = path.join(__dirname, '../auth_info_baileys');
 const GROUP_ID = process.env.GROUP_ID || '';
 const OWNER_NUMBER = '51943605088';
+const BOT_NUMBER = process.env.BOT_NUMBER || '51937761964';
 const OWNER_JID = `${OWNER_NUMBER}@s.whatsapp.net`;
 
 // Intención del owner: próximo sticker va a qué banco
@@ -477,13 +478,21 @@ async function startBot() {
       const senderJid = isGroup ? msg.key.participant : jid;
       const senderName = msg.pushName || senderJid?.split('@')[0] || 'hermano';
 
+      // Normalizar mensaje (ephemeral, viewOnce, etc.)
+      const rawMsg = msg.message?.ephemeralMessage?.message ||
+        msg.message?.viewOnceMessage?.message ||
+        msg.message?.viewOnceMessageV2?.message ||
+        msg.message?.documentWithCaptionMessage?.message ||
+        msg.message;
       const text = (
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        msg.message?.videoMessage?.caption ||
+        rawMsg?.conversation ||
+        rawMsg?.extendedTextMessage?.text ||
+        rawMsg?.imageMessage?.caption ||
+        rawMsg?.videoMessage?.caption ||
+        rawMsg?.documentMessage?.caption ||
         ''
       ).trim();
+      console.log(`[MSG] ${isGroup ? 'grupo' : 'privado'} ${senderName}: "${text.slice(0,60)}" tipo=${Object.keys(rawMsg||{}).join(',').slice(0,80)}`);
 
       // Owner escribe !bd → próximos stickers van al banco de buenos días (ventana 5 min)
       if (!isGroup && isOwner(senderJid) && text === '!bd') {
@@ -563,10 +572,10 @@ async function startBot() {
 
       // Detectar si es imagen o audio compartido (aporte multimedia)
       const isMedia = !!(
-        msg.message?.imageMessage ||
-        msg.message?.videoMessage ||
-        msg.message?.documentMessage ||
-        msg.message?.audioMessage
+        rawMsg?.imageMessage ||
+        rawMsg?.videoMessage ||
+        rawMsg?.documentMessage ||
+        rawMsg?.audioMessage
       );
 
       try {
@@ -575,9 +584,9 @@ async function startBot() {
 
         // 1a. Aporte por imagen/archivo — sesión de álbum (5 pts, una sola vez por sesión)
         if (isGroup && isMedia) {
-          const caption = (msg.message?.imageMessage?.caption || msg.message?.videoMessage?.caption || '').toLowerCase();
-          const isImage = !!msg.message?.imageMessage;
-          const isAudio = !!(msg.message?.audioMessage || msg.message?.documentMessage);
+          const caption = (rawMsg?.imageMessage?.caption || rawMsg?.videoMessage?.caption || '').toLowerCase();
+          const isImage = !!rawMsg?.imageMessage;
+          const isAudio = !!(rawMsg?.audioMessage || rawMsg?.documentMessage);
           // Meme solo si caption tiene texto cómico explícito
           const looksLikeMeme = isImage &&
             /jaja|lol|xd|jeje|😂|🤣|gracioso|cuando|pov:|me when|nobody:|nadie:|broo|💀/.test(caption);
