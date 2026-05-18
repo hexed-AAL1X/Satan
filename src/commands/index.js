@@ -30,7 +30,60 @@ function getGroq() {
 
 const recentlyRecommended = new Set();
 
-const { isForbiddenNonCircleGenre, rejectionMessageShort } = require('../utils/circle-genre-guard');
+const { isForbiddenNonCircleGenre } = require('../utils/circle-genre-guard');
+const { satanGroqMessage, FB } = require('../handlers/groq-satan-copy');
+
+/** Owner: +51 943 605 088 — JID donde se reenvía siempre el catálogo privado */
+const OWNER_PN = '51943605088';
+const OWNER_PRIV_JID = `${OWNER_PN}@s.whatsapp.net`;
+
+function getOwnerPrivateCatalogChunks() {
+  return [
+    `📜 *CATÁLOGO PRIVADO DEL SEÑOR*
+Número: *+51 943 605 088*
+JID: \`${OWNER_PRIV_JID}\`
+
+*1) Chat sin comando (texto normal)*
+SATÁN responde por *Groq*: contigo tono de AMO.
+Si acabas de lanzar *!aprobar* / *!degradar* / *!expulsar* (y variantes) y el menú está activo, un *número*, *0* o *cancelar* completa la acción (~2 min TTL).`,
+
+    `*2) Stickers → bancos (solo tú)*
+*!bd* → los stickers que mandes en los siguientes *5 minutos* van al banco *buenos días*.
+*!bv* → igual para el banco *bienvenida*.
+Las confirmaciones y conteos te llegan en este chat.`,
+
+    `*3) Memes*
+Manda una *imagen* con leyenda exacta *!savememe* → se guarda en el banco interno de memes.`,
+
+    `*4) Menú de grupos desde el privado*
+*!aprobar* · *!approve* · *!degradar* · *!trial* · *!expulsar* · *!kick* · *!salir*
+El bot lista tus grupos numerados; respondes el número o cancelas.
+Tras elegir: mensajes de resultado (y en aprobar, también aviso al grupo) vía Groq + fallbacks.`,
+
+    `*5) Reporte y ayuda admin*
+*!grupos* · *!estado* · *!status* → reporte PRO / TRIAL / sin estado (+ trials huérfanos).
+*!ownerhelp* · *!adminhelp* → panel de comandos (si lo pides desde un grupo, el panel largo se manda aquí igual).`,
+
+    `*6) Comandos con ! también en DM*
+Ejemplos: *!rank* *!top* *!ruleset* *!help* *!recomienda* *!trivia* *!metalquiz* *!meme* *!band* *!album* *!streak* *!letra* *!battle* *!onthisday* *!hoy*
+*!mute* · *!unmute* · *!ban*: úsalos *en el grupo* con mención (no están pensados desde el solo chat privado).`,
+
+    `*7) Avisos automáticos que te llegan al privado*
+Si un CIRCLE ya *gastó el trial* y vuelven a meter al bot sin acuerdo, recibes un DM de alerta citando el *nombre del grupo*, el texto del rechazo Groq/hardcodeado y contacto wa.me.`,
+    `*8) Repetir este catálogo*
+*!privado* o *!catalogoprivado* (solo tú): vuelve a mandar estos mensajes a *+51 943 605 088*.`,
+  ];
+}
+
+/** Envía al owner el listado completo de funciones / mensajes de DM fijas. */
+async function sendOwnerPrivateCatalog(sock) {
+  for (const chunk of getOwnerPrivateCatalogChunks()) {
+    await sock.sendMessage(OWNER_PRIV_JID, { text: chunk }).catch((e) => {
+      console.error('[PRIV-CAT]', e.message);
+    });
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}
 
 async function getUndergroundRecommendations(genre) {
   const groq = getGroq();
@@ -140,12 +193,12 @@ const OUTRO_FALLBACK = [
 async function sendRecommendations(sock, jid, genre) {
   const gRaw = (genre || '').trim();
   if (isForbiddenNonCircleGenre(gRaw)) {
-    await sendWithTyping(sock, jid, rejectionMessageShort());
+    await sendWithTyping(sock, jid, await satanGroqMessage('genre_reject'));
     return;
   }
   const bands = await getUndergroundRecommendations(gRaw || 'metal extremo');
   if (!bands?.length) {
-    await sendWithTyping(sock, jid, `☠️ no encontré nada esta vez\nintenta de nuevo MORTAL 🖤`);
+    await sendWithTyping(sock, jid, await satanGroqMessage('reco_empty'));
     return;
   }
 
@@ -313,8 +366,7 @@ module.exports.saveMemeFromMsg = saveMemeFromMsg;
 async function sendMeme(sock, jid) {
   const meme = await getMeme();
   if (meme) {
-    const captions = [`🤘 meme del CIRCLE ☠️`, `💀 humor del INFRAMUNDO 🤘`, `😈 el CIRCLE se ríe ☠️`, `🖤 la oscuridad también tiene humor 💀`];
-    const caption = captions[Math.floor(Math.random() * captions.length)];
+    const caption = await satanGroqMessage('meme_caption');
     if (meme.buffer) {
       await sock.sendMessage(jid, { image: meme.buffer, caption });
     } else {
@@ -322,17 +374,16 @@ async function sendMeme(sock, jid) {
     }
   } else {
     const { sendWithTyping } = require('../utils/typing');
-    await sendWithTyping(sock, jid, `☠️ los servidores del inframundo fallaron\nintenta de nuevo MORTAL 🖤`);
+    await sendWithTyping(sock, jid, await satanGroqMessage('infra_fail'));
   }
 }
 
 async function handleCommand(sock, jid, senderJid, senderName, text, groupMetadata, msg) {
   const [cmd, ...args] = text.trim().split(/\s+/);
   const command = cmd.toLowerCase();
-  const OWNER_NUMBER = '51943605088';
   const ownerLidResolved = global._ownerLid || '';
   const isOwner = senderJid && (
-    senderJid.includes(OWNER_NUMBER) ||
+    senderJid.includes(OWNER_PN) ||
     (ownerLidResolved && senderJid.includes(ownerLidResolved))
   );
 
@@ -359,15 +410,19 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
 
   if (command === '!rank' || command === '!rango') {
     const user = getUser(senderJid, jid);
-    if (!user) {
-      return `⚔️ @${senderName}, aún no tienes aportes registrados. ¡Comparte algo! 🤘`;
-    }
-    return `${getLevelEmoji(user.level)} RANGO DE @${senderName}\n\n${getLevelName(user.level)}\n⚔️ Puntos totales: ${user.points}\n🦇 Strikes: ${user.strikes}/3`;
+    if (!user) return await satanGroqMessage('rank_none', { senderName });
+    return await satanGroqMessage('rank_card', {
+      senderName,
+      emoji: getLevelEmoji(user.level),
+      levelName: getLevelName(user.level),
+      points: user.points,
+      strikes: user.strikes,
+    });
   }
 
   if (command === '!top' || command === '!ranking') {
     const top = getWeeklyRanking(null, jid);
-    if (!top.length) return `☠️ Nadie ha aportado esta semana aún. Sean los primeros. 🤘`;
+    if (!top.length) return await satanGroqMessage('top_empty');
     const medals = ['🥇', '🥈', '🥉'];
     const podium = top.slice(0, 3).map((u, i) =>
       `${medals[i]} *${i + 1}er puesto* ${u.name} ${getLevelEmoji(u.level)}  [ ${u.weekly_points} pts ]`
@@ -375,33 +430,22 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     const rest = top.slice(3).map((u, i) =>
       `  ${i + 4}. ${u.name} ${getLevelEmoji(u.level)} ${u.weekly_points} pts`
     ).join('\n');
-    return `⚔️ RANKING SEMANAL ${getWeekKey()}\n\n${podium}${rest ? '\n\n' + rest : ''}\n\n💀 se reinicia cada lunes ¿dónde estás tú? 🤘`;
+    const rawBlock = `${podium}${rest ? '\n\n' + rest : ''}`;
+    return await satanGroqMessage('top_body', { weekKey: getWeekKey(), rawBlock });
   }
 
   if (command === '!ruleset' || command === '!reglas') {
-    return `📜 REGLAS DEL CIRCLE:\n\n⚔️ 1. Respeta a tus hermanos del metal\n🦇 2. No links de otros grupos de WhatsApp 3 strikes y BAN\n☠️ 3. Los APORTADORES son el alma del grupo\n🤘 4. Todo subgénero de metal es bienvenido\n🖤 5. Sin spam sin publicidad\n🔱 6. El bot modera automáticamente no te hagas el vivo`;
+    return await satanGroqMessage('ruleset', { rulesBlock: FB.ruleset() });
   }
 
   if (command === '!help' || command === '!ayuda' || command === '!comandos') {
-    return `👁️ *COMANDOS DEL CIRCLE* ⚔️\n\n` +
-      `🎖️ *!rank* — tu rango y puntos actuales\n` +
-      `🏆 *!top* — ranking semanal de aportadores\n` +
-      `🔥 *!streak* — tu racha de días aportando\n` +
-      `🎵 *!band [nombre]* — info + imagen de una banda\n` +
-      `💿 *!album [álbum] de [banda]* — portada + info\n` +
-      `🩸 *!recomienda [género o descripción]* — culto metal rock o cumbia bachata salsa de la tribu\n` +
-      `🎤 *!letra [canción] por [artista]* — letra + portada\n` +
-      `☠️ *!trivia [facil|medio|dificil]* — pregunta de 30s\n` +
-      `📜 *!ruleset* — reglas del CIRCLE\n` +
-      `⚡ *!onthisday* — qué pasó hoy en la historia del metal\n\n` +
-      `_Admins:_ *!mute @persona [horas]* · *!unmute @persona* · *!ban @persona*\n\n` +
-      `🖤 el CIRCLE te observa ⛧`;
+    return await satanGroqMessage('help', { helpBlock: FB.help() });
   }
 
   if (command === '!recomienda') {
     const query = args.join(' ') || 'metal extremo';
     if (isForbiddenNonCircleGenre(query)) {
-      return rejectionMessageShort();
+      return await satanGroqMessage('genre_reject');
     }
     sendRecommendations(sock, jid, query).catch(console.error);
     return null;
@@ -422,93 +466,101 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   if (command === '!meme') {
     const meme = await getMeme();
     if (meme) {
-      const captions = [`🤘 meme del CIRCLE ☠️`, `💀 humor del INFRAMUNDO 🤘`, `😈 el CIRCLE se ríe ☠️`, `🖤 la oscuridad también tiene humor 💀`];
-      const caption = captions[Math.floor(Math.random() * captions.length)];
+      const caption = await satanGroqMessage('meme_caption');
       if (meme.buffer) {
         await sock.sendMessage(jid, { image: meme.buffer, caption });
       } else {
         await sock.sendMessage(jid, { image: { url: meme.url }, caption });
       }
     } else {
-      await sendWithTyping(sock, jid, `☠️ los servidores del inframundo fallaron\nintenta de nuevo MORTAL 🖤`);
+      await sendWithTyping(sock, jid, await satanGroqMessage('infra_fail'));
     }
     return null;
   }
 
   // --- Comandos de admin ---
   if (command === '!mute') {
-    if (!isAdmin) return `☠️ solo los ADMINS pueden usar eso 🔱`;
+    if (!isAdmin) return await satanGroqMessage('admin_denied');
     const mentionedJid = getMentionedJid();
-    if (!mentionedJid) return `⚔️ Uso: !mute @persona [horas]\nEjemplo: !mute @Juan 24`;
+    if (!mentionedJid) {
+      return await satanGroqMessage('usage', { usage: '!mute @persona [horas]', example: '!mute @Juan 24' });
+    }
     const hours = parseInt(args.find(a => /^\d+$/.test(a))) || 24;
     muteUser(mentionedJid, hours, jid);
-    const targetName = mentionedJid.split('@')[0];
+    const targetKey = mentionedJid.split('@')[0];
     return {
-      text: `☠️ @${targetName} silenciado por ${hours} hora${hours !== 1 ? 's' : ''}\nsus mensajes serán eliminados automáticamente ⚔️`,
+      text: await satanGroqMessage('mute_ok', { targetKey, hours }),
       mentions: [mentionedJid],
     };
   }
 
   if (command === '!ban') {
-    if (!isAdmin) return `☠️ solo los ADMINS pueden usar eso 🔱`;
+    if (!isAdmin) return await satanGroqMessage('admin_denied');
     const mentionedJid = getMentionedJid();
-    if (!mentionedJid) return `⚔️ Uso: !ban @persona`;
-    const targetName = mentionedJid.split('@')[0];
+    if (!mentionedJid) return await satanGroqMessage('usage', { usage: '!ban @persona', example: '!ban @Juan' });
+    const targetKey = mentionedJid.split('@')[0];
     try {
       await sock.groupParticipantsUpdate(jid, [mentionedJid], 'remove');
     } catch (e) {
       console.error('[BAN]', e.message);
-      return `💀 no pude expulsar a @${targetName} ¿soy admin del grupo? ⚔️`;
+      return await satanGroqMessage('ban_failed', { targetKey });
     }
     return {
-      text: `🔱 @${targetName} fue expulsado del CIRCLE\nel inframundo no perdona ☠️`,
+      text: await satanGroqMessage('ban_ok', { targetKey }),
       mentions: [mentionedJid],
     };
   }
 
   if (command === '!unmute') {
-    if (!isAdmin) return `☠️ solo los ADMINS pueden usar eso 🔱`;
+    if (!isAdmin) return await satanGroqMessage('admin_denied');
     const mentionedJid = getMentionedJid();
-    if (!mentionedJid) return `⚔️ Uso: !unmute @persona`;
+    if (!mentionedJid) return await satanGroqMessage('usage', { usage: '!unmute @persona', example: '!unmute @Juan' });
     muteUser(mentionedJid, 0, jid);
-    const targetName = mentionedJid.split('@')[0];
+    const targetKey = mentionedJid.split('@')[0];
     return {
-      text: `🖤 @${targetName} ya puede hablar de nuevo en el CIRCLE 🤘`,
+      text: await satanGroqMessage('unmute_ok', { targetKey }),
       mentions: [mentionedJid],
     };
   }
 
   if (command === '!band') {
     const band = args.join(' ');
-    if (!band) return `⚔️ Uso: !band [nombre de banda]\nEjemplo: !band Mayhem`;
-    if (isForbiddenNonCircleGenre(band)) return rejectionMessageShort();
+    if (!band) return await satanGroqMessage('usage', { usage: '!band [nombre de banda]', example: '!band Mayhem' });
+    if (isForbiddenNonCircleGenre(band)) return await satanGroqMessage('genre_reject');
     getBandInfo(sock, jid, band).catch(console.error);
     return null;
   }
 
   if (command === '!album') {
     const query = args.join(' ');
-    if (!query) return `⚔️ Uso: !album [nombre del álbum] de [banda]\nEjemplo: !album Reign in Blood de Slayer\nO solo: !album Reign in Blood`;
-    if (isForbiddenNonCircleGenre(query)) return rejectionMessageShort();
+    if (!query) {
+      return await satanGroqMessage('usage', {
+        usage: '!album [álbum] de [banda] o solo nombre',
+        example: '!album Reign in Blood de Slayer',
+      });
+    }
+    if (isForbiddenNonCircleGenre(query)) return await satanGroqMessage('genre_reject');
     getAlbumInfo(sock, jid, query).catch(console.error);
     return null;
   }
 
   if (command === '!streak') {
     const user = getUser(senderJid, jid);
-    if (!user) return `⚔️ aún no tienes aportes registrados en el CIRCLE 🖤`;
+    if (!user) return await satanGroqMessage('streak_none', { senderName });
     const streak = user.streak || 0;
-    if (streak === 0) return `☠️ @${senderName} tu racha está en CERO\naporta algo hoy y empieza 🖤`;
-    if (streak === 1) return `🕯️ @${senderName} llevas 1 día seguido aportando\nno pares ahora ⚔️`;
-    if (streak < 5) return `⚔️ @${senderName} llevas *${streak} días* seguidos\nel CIRCLE lo nota 🦇`;
-    if (streak < 10) return `💀 @${senderName} *${streak} días* consecutivos\neso es DEDICACIÓN BRUTAL ☠️`;
-    return `☠️ @${senderName} *${streak} días* seguidos aportando\nel inframundo te RECONOCE como GUERRERO 🩸⛧`;
+    if (streak === 0) return await satanGroqMessage('streak_0', { senderName });
+    if (streak === 1) return await satanGroqMessage('streak_1', { senderName });
+    if (streak < 5) return await satanGroqMessage('streak_low', { senderName, streak });
+    if (streak < 10) return await satanGroqMessage('streak_mid', { senderName, streak });
+    return await satanGroqMessage('streak_high', { senderName, streak });
   }
 
   if (command === '!letra') {
     const query = args.join(' ');
-    if (!query) return `⚔️ Uso: !letra [canción] por [artista]\nEjemplo: !letra Freezing Moon por Mayhem`;
-    if (isForbiddenNonCircleGenre(query)) return rejectionMessageShort();
+    if (!query) {
+      return await satanGroqMessage('usage', { usage: '!letra [canción] por [artista]', example: '!letra Freezing Moon por Mayhem' });
+    }
+    if (isForbiddenNonCircleGenre(query)) return await satanGroqMessage('genre_reject');
     getLyrics(sock, jid, query).catch(console.error);
     return null;
   }
@@ -535,14 +587,14 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       if (command === '!aprobar' || command === '!approve') {
         const { approveGroup, endTrial } = require('../db');
         approveGroup(jid); endTrial(jid);
-        return `🔱 grupo aprobado PERMANENTE ☠️`;
+        return await satanGroqMessage('owner_pro_ok');
       }
       if (command === '!degradar' || command === '!trial') {
         const { unapproveGroup, startTrial, getTrialStart, clearTrialConsumed } = require('../db');
         unapproveGroup(jid);
         clearTrialConsumed(jid);
         if (!getTrialStart(jid)) startTrial(jid);
-        return `⌛ modo TRIAL activado — 12h y me voy ☠️`;
+        return await satanGroqMessage('owner_trial_ok');
       }
       if (['!expulsar','!kick','!salir'].includes(command)) {
         kickGroupWithFarewell(sock, senderJid, jid, null).catch(console.error);
@@ -559,18 +611,27 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   if (command === '!grupos' || command === '!estado' || command === '!status') {
     if (!isOwner) return null;
     sendGroupsReport(sock, senderJid).catch(e => console.error('[GRUPOS]', e.message));
-    if (jid !== senderJid) return `🔱 reporte enviado al privado SEÑOR ☠️`;
+    if (jid !== senderJid) return await satanGroqMessage('owner_dm_sent');
+    return null;
+  }
+
+  // --- Owner-only: catálogo de mensajes/fun. privadas → siempre +51 943 605 088 ---
+  if (command === '!privado' || command === '!catalogoprivado') {
+    if (!isOwner) return null;
+    await sendOwnerPrivateCatalog(sock);
+    if (jid.endsWith('@g.us')) return await satanGroqMessage('private_catalog_ack');
     return null;
   }
 
   // --- Owner-only: ayuda privada ---
   if (command === '!ownerhelp' || command === '!adminhelp') {
     if (!isOwner) return null;
-    const helpMsg = [
+    const panelBlock = [
       `🔱 *PANEL DEL SEÑOR* ☠️`,
       ``,
       `*GESTIÓN DE GRUPOS*`,
       `!grupos — reporte completo (PRO/TRIAL/tiempo)`,
+      `!privado — catálogo COMPLETO de todo lo que pasa por DM (~+51 943 605 088)`,
       `!aprobar — menú para aprobar un grupo (PRO permanente)`,
       `!degradar — menú para bajar un grupo a TRIAL 12h`,
       `!expulsar — menú para sacar un grupo con despedida comercial`,
@@ -592,8 +653,9 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       ``,
       `_Solo tú puedes usar estos comandos_ 👁️`,
     ].join('\n');
+    const helpMsg = await satanGroqMessage('owner_help', { panelBlock });
     await sock.sendMessage(senderJid, { text: helpMsg }).catch(() => {});
-    if (jid !== senderJid) return `🔱 ayuda enviada al privado SEÑOR`;
+    if (jid !== senderJid) return await satanGroqMessage('owner_help_sent');
     return null;
   }
 
@@ -619,8 +681,12 @@ function fmtStatus(gid) {
 
 async function openOwnerMenu(sock, ownerJid, action) {
   let groups = {};
-  try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
-    await sock.sendMessage(ownerJid, { text: `⚠️ no pude obtener grupos: ${e.message}` });
+  try {
+    groups = await sock.groupFetchAllParticipating();
+  } catch (e) {
+    await sock.sendMessage(ownerJid, {
+      text: await satanGroqMessage('menu_fetch_error', { error: e.message }),
+    });
     return;
   }
   const list = Object.entries(groups).map(([gid, m], i) => ({
@@ -652,7 +718,8 @@ async function openOwnerMenu(sock, ownerJid, action) {
     expiresAt: Date.now() + MENU_TTL,
   });
 
-  await sock.sendMessage(ownerJid, { text: lines.join('\n') });
+  const menuBody = await satanGroqMessage('owner_menu_list', { rawBlock: lines.join('\n') });
+  await sock.sendMessage(ownerJid, { text: menuBody });
 }
 
 async function handlePendingMenu(sock, ownerJid, text) {
@@ -666,13 +733,15 @@ async function handlePendingMenu(sock, ownerJid, text) {
   const trimmed = text.trim();
   if (trimmed === '0' || trimmed.toLowerCase() === 'cancelar') {
     pendingMenus.delete(ownerJid);
-    await sock.sendMessage(ownerJid, { text: `👁️ acción cancelada` });
+    await sock.sendMessage(ownerJid, { text: await satanGroqMessage('owner_cancel') });
     return true;
   }
 
   const num = parseInt(trimmed);
   if (isNaN(num) || num < 1 || num > pending.groups.length) {
-    await sock.sendMessage(ownerJid, { text: `⚠️ número inválido SEÑOR responde entre 1 y ${pending.groups.length} o "0" para cancelar` });
+    await sock.sendMessage(ownerJid, {
+      text: await satanGroqMessage('owner_invalid_num', { maxNum: pending.groups.length }),
+    });
     return true;
   }
 
@@ -683,8 +752,12 @@ async function handlePendingMenu(sock, ownerJid, text) {
   if (action === '!aprobar' || action === '!approve') {
     const { approveGroup, endTrial } = require('../db');
     approveGroup(gid); endTrial(gid);
-    await sock.sendMessage(ownerJid, { text: `🔱 *${name}* → aprobado PERMANENTE ☠️` });
-    try { await sock.sendMessage(gid, { text: `🔱 el SEÑOR ha autorizado mi presencia aquí de manera PERMANENTE\nel INFRAMUNDO es su guardián eterno ☠️ 🤘` }); } catch (_) {}
+    await sock.sendMessage(ownerJid, {
+      text: await satanGroqMessage('owner_approve_dm', { name }),
+    });
+    try {
+      await sock.sendMessage(gid, { text: await satanGroqMessage('group_pro_broadcast') });
+    } catch (_) {}
 
   } else if (action === '!degradar' || action === '!trial') {
     const { unapproveGroup, startTrial, getTrialStart, clearTrialConsumed } = require('../db');
@@ -694,7 +767,9 @@ async function handlePendingMenu(sock, ownerJid, text) {
     const ts = getTrialStart(gid);
     const TRIAL_MS = 12 * 60 * 60 * 1000;
     const rem = ts ? Math.round((TRIAL_MS - (Date.now() - ts)) / 3600000 * 10) / 10 : 12;
-    await sock.sendMessage(ownerJid, { text: `⌛ *${name}* → TRIAL activado\nse irá en ~${rem}h ☠️` });
+    await sock.sendMessage(ownerJid, {
+      text: await satanGroqMessage('owner_degrade_dm', { name, remHours: rem }),
+    });
 
   } else if (['!expulsar','!kick','!salir'].includes(action)) {
     await kickGroupWithFarewell(sock, ownerJid, gid, null);
@@ -731,7 +806,9 @@ async function kickGroupWithFarewell(sock, ownerJid, targetGid, query) {
     markTrialConsumed(gid);
     if (removeGroupPresentation) removeGroupPresentation(gid);
     if (ownerJid) {
-      await sock.sendMessage(ownerJid, { text: `✅ salí de *${groupName}* con mensaje de despedida ☠️` }).catch(() => {});
+      await sock.sendMessage(ownerJid, {
+        text: await satanGroqMessage('kick_owner_confirm', { groupName }),
+      }).catch(() => {});
     }
   };
 
@@ -749,13 +826,21 @@ async function kickGroupWithFarewell(sock, ownerJid, targetGid, query) {
   // Modo búsqueda por nombre
   let groups = {};
   try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
-    if (ownerJid) await sock.sendMessage(ownerJid, { text: `⚠️ no pude obtener grupos: ${e.message}` });
+    if (ownerJid) {
+      await sock.sendMessage(ownerJid, {
+        text: await satanGroqMessage('menu_fetch_error', { error: e.message }),
+      });
+    }
     return;
   }
   const q = (query || '').toLowerCase();
   const matches = Object.entries(groups).filter(([, m]) => (m?.subject || '').toLowerCase().includes(q));
   if (!matches.length) {
-    if (ownerJid) await sock.sendMessage(ownerJid, { text: `👁️ no encontré ningún grupo con "${query}" SEÑOR` });
+    if (ownerJid) {
+      await sock.sendMessage(ownerJid, {
+        text: await satanGroqMessage('group_not_found', { query: String(query || '') }),
+      });
+    }
     return;
   }
   for (const [gid, meta] of matches) {
@@ -767,19 +852,25 @@ async function kickGroupWithFarewell(sock, ownerJid, targetGid, query) {
 async function unapproveGroupByName(sock, ownerJid, query) {
   const { unapproveGroup } = require('../db');
   let groups = {};
-  try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
-    await sock.sendMessage(ownerJid, { text: `⚠️ no pude obtener grupos: ${e.message}` });
+  try { groups = await sock.groupFetchAllParticipating();   } catch (e) {
+    await sock.sendMessage(ownerJid, {
+      text: await satanGroqMessage('menu_fetch_error', { error: e.message }),
+    });
     return;
   }
   const q = query.toLowerCase();
   const matches = Object.entries(groups).filter(([, m]) => (m?.subject || '').toLowerCase().includes(q));
   if (!matches.length) {
-    await sock.sendMessage(ownerJid, { text: `👁️ no encontré ningún grupo con "${query}" SEÑOR` });
+    await sock.sendMessage(ownerJid, {
+      text: await satanGroqMessage('group_not_found', { query }),
+    });
     return;
   }
   for (const [gid, meta] of matches) {
     unapproveGroup(gid);
-    await sock.sendMessage(ownerJid, { text: `⚔️ *${meta.subject}* → desaprobado` });
+    await sock.sendMessage(ownerJid, {
+      text: await satanGroqMessage('unapprove_ok', { subject: meta.subject }),
+    });
   }
 }
 
@@ -794,8 +885,10 @@ async function sendGroupsReport(sock, ownerJid) {
   const { isGroupApproved, getTrialStart, getAllTrials } = require('../db');
   const TRIAL_MS = 12 * 60 * 60 * 1000;
   let groups = {};
-  try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
-    await sock.sendMessage(ownerJid, { text: `⚠️ no pude obtener la lista de grupos: ${e.message}` });
+  try { groups = await sock.groupFetchAllParticipating();   } catch (e) {
+    await sock.sendMessage(ownerJid, {
+      text: await satanGroqMessage('menu_fetch_error', { error: `lista: ${e.message}` }),
+    });
     return;
   }
 
@@ -863,7 +956,9 @@ async function sendGroupsReport(sock, ownerJid) {
     });
   }
 
-  await sock.sendMessage(ownerJid, { text: lines.join('\n') });
+  await sock.sendMessage(ownerJid, {
+    text: await satanGroqMessage('groups_report', { rawBlock: lines.join('\n') }),
+  });
 }
 
 async function fetchBandData(band) {
@@ -886,7 +981,7 @@ Si no existe la banda o no es de metal responde: {"error":"not_found"}`;
 }
 
 async function getBandInfo(sock, jid, band) {
-  await sendWithTyping(sock, jid, `👁️ invocando info de *${band}* ☠️`);
+  await sendWithTyping(sock, jid, await satanGroqMessage('lookup_invoking', { kind: 'info', query: band }));
 
   let data = null;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -900,7 +995,7 @@ async function getBandInfo(sock, jid, band) {
   }
 
   if (!data || data.error) {
-    await sendWithTyping(sock, jid, `☠️ no encontré info sobre *${band}* en el inframundo 💀`);
+    await sendWithTyping(sock, jid, await satanGroqMessage('band_not_found', { band }));
     return;
   }
 
@@ -960,7 +1055,7 @@ Si no existe el album responde: {"error":"not_found"}`;
 }
 
 async function getAlbumInfo(sock, jid, query) {
-  await sendWithTyping(sock, jid, `👁️ invocando info de *${query}* ☠️`);
+  await sendWithTyping(sock, jid, await satanGroqMessage('lookup_invoking', { kind: 'info de álbum', query }));
 
   let data = null;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -974,7 +1069,7 @@ async function getAlbumInfo(sock, jid, query) {
   }
 
   if (!data || data.error) {
-    await sendWithTyping(sock, jid, `☠️ no encontré info sobre *${query}* en el inframundo 💀`);
+    await sendWithTyping(sock, jid, await satanGroqMessage('album_not_found', { query }));
     return;
   }
 
@@ -1007,7 +1102,7 @@ async function getAlbumInfo(sock, jid, query) {
 }
 
 async function getLyrics(sock, jid, query) {
-  await sendWithTyping(sock, jid, `👁️ invocando letra de *${query}* ☠️`);
+  await sendWithTyping(sock, jid, await satanGroqMessage('lookup_invoking', { kind: 'letra', query }));
 
   // Parsear "canción por artista" o "canción - artista" o "canción by artista"
   let song = query, artist = '';
@@ -1060,7 +1155,11 @@ Si no la conoces exactamente responde: {"album":"","lyrics":"NO_FOUND"}` }],
   }
 
   if (!lyricsText) {
-    await sendWithTyping(sock, jid, `☠️ no encontré letra de *${song}* en el inframundo 💀\nusa: !letra [canción] por [artista]`);
+    await sendWithTyping(
+      sock,
+      jid,
+      await satanGroqMessage('lyrics_not_found', { song })
+    );
     return;
   }
 
@@ -1088,4 +1187,4 @@ Si no la conoces exactamente responde: {"album":"","lyrics":"NO_FOUND"}` }],
   }
 }
 
-module.exports = { handleChatMessage, handleCommand, sendRecommendations, sendMeme, getBandInfo, getAlbumInfo, saveMemeFromMsg, getLyrics, handlePendingMenu };
+module.exports = { handleChatMessage, handleCommand, sendRecommendations, sendMeme, getBandInfo, getAlbumInfo, saveMemeFromMsg, getLyrics, handlePendingMenu, sendOwnerPrivateCatalog };
