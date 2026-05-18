@@ -3,6 +3,8 @@ const path = require('path');
 const Groq = require('groq-sdk');
 
 const TRIAL_FIN_IMG = path.join(__dirname, '../../data/trial_fin.png');
+/** Imagen cuando reañaden al bot tras haber gastado ya la prueba (indignación) */
+const TRIAL_REINVITE_REJECT_IMG = path.join(__dirname, '../../data/trial_reinvite_rejected.png');
 const OWNER_CONTACT = '51943605088';
 
 let groqClient = null;
@@ -15,6 +17,13 @@ function getGroq() {
 function getTrialFinImageBuffer() {
   try {
     if (fs.existsSync(TRIAL_FIN_IMG)) return fs.readFileSync(TRIAL_FIN_IMG);
+  } catch (_) {}
+  return null;
+}
+
+function getTrialReinviteRejectedImageBuffer() {
+  try {
+    if (fs.existsSync(TRIAL_REINVITE_REJECT_IMG)) return fs.readFileSync(TRIAL_REINVITE_REJECT_IMG);
   } catch (_) {}
   return null;
 }
@@ -83,9 +92,11 @@ async function generateSecondInviteRejectedCaption(groupLabel) {
   const groq = getGroq();
   if (!groq) return null;
   const wa = `wa.me/${OWNER_CONTACT}`;
-  const prompt = `Eres SATÁN. El grupo "${groupLabel}" YA gastó su prueba gratuita única. Nadie debe creer que habrá segunda ronda igual de gratis.
+  const prompt = `Eres SATÁN. El grupo "${groupLabel}" YA gastó su prueba gratuita única.
 
-Escribes UN mensaje muy corto e indignado para el chat grupal porque te invocaron otra vez sin permiso después de eso.
+Unos IMPERTINENTES te volvieron a meter pensando repetir gratis lo que YA se les ACABÓ. Mostrás INDIGNACIÓN y desprecio CONTROLADO: no sos un circo gratis en bucle para su comodidad.
+
+Escribes UN mensaje muy corto e indignado como leyenda caption de la imagen en WhatsApp porque te invocaron otra vez sin permiso y sin pacto real con tu GUARDIÁN después de eso.
 
 REGLAS:
 - Español, 3 a 6 líneas máximo, líneas cortas
@@ -130,6 +141,37 @@ Solo JSON: {"caption":"..."}`;
 /**
  * Envía imagen + caption (Groq o fallback), espera delayMs y NO hace leave/cleanup (eso lo llama index.js o commands).
  */
+/**
+ * Reañado indebido: imagen enfadada + caption Groq o fallback (no segunda prueba gratuita).
+ */
+async function sendTrialReinviteRejectedFarewell(sock, gid, opts) {
+  const { groupLabel, getFallbackCaption, delayBeforeNextMs = 2500 } = opts;
+  let name = groupLabel;
+  if (!name) {
+    try {
+      const m = await sock.groupMetadata(gid);
+      name = m?.subject || gid;
+    } catch (_) {
+      name = gid;
+    }
+  }
+  let caption = await generateSecondInviteRejectedCaption(name).catch(() => null);
+  if (!caption && typeof getFallbackCaption === 'function') caption = getFallbackCaption();
+  if (!caption) caption = `👁️ otra INVOCACIÓN después de tiempo MUERTO ☠️ segunda ronda GRATUITA aquí NO EXISTE 🔥\n\n📞 *wa.me/${OWNER_CONTACT}*`;
+  const img = getTrialReinviteRejectedImageBuffer();
+  try {
+    if (img && img.length) await sock.sendMessage(gid, { image: img, caption });
+    else await sock.sendMessage(gid, { text: caption });
+    await new Promise((r) => setTimeout(r, delayBeforeNextMs));
+  } catch (e) {
+    console.error('[TRIAL-REINV-SEND]', e.message);
+    try {
+      await sock.sendMessage(gid, { text: caption });
+      await new Promise((r) => setTimeout(r, delayBeforeNextMs));
+    } catch (_) {}
+  }
+}
+
 async function sendTrialExpiredFarewell(sock, gid, opts) {
   const { trialHours, getFallbackCaption, delayBeforeLeaveMs = 4000 } = opts;
   let groupName = gid;
@@ -156,8 +198,11 @@ async function sendTrialExpiredFarewell(sock, gid, opts) {
 
 module.exports = {
   getTrialFinImageBuffer,
+  getTrialReinviteRejectedImageBuffer,
   generateTrialExpiredCaption,
   generateSecondInviteRejectedCaption,
   sendTrialExpiredFarewell,
+  sendTrialReinviteRejectedFarewell,
   TRIAL_FIN_IMG,
+  TRIAL_REINVITE_REJECT_IMG,
 };

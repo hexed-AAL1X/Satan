@@ -14,7 +14,7 @@ const http = require('http');
 const { upsertUser, getDb, updateLevel, removeUser, isUserMuted, hasGroupPresentation, markGroupPresentation, removeGroupPresentation, isGroupApproved, approveGroup, unapproveGroup, startTrial, getTrialStart, endTrial, getAllTrials, markTrialConsumed, isTrialConsumed } = require('./db');
 const { getLevelName, getLevelEmoji } = require('./scheduler/ranking');
 const { getWelcomeMessage, sendBotPresentation } = require('./handlers/welcome');
-const { sendTrialExpiredFarewell, generateSecondInviteRejectedCaption } = require('./handlers/trial-farewell');
+const { sendTrialExpiredFarewell, sendTrialReinviteRejectedFarewell } = require('./handlers/trial-farewell');
 const { getSatanResponse } = require('./handlers/satan-dm');
 const { saveSticker, sendWelcomeStickers, sendMorningStickers, getStickerFiles } = require('./handlers/stickers');
 const { hasGroupLink, handleGroupLink } = require('./moderation/links');
@@ -81,13 +81,12 @@ async function rejectSecondTrialInvitation(sock, gid, adderJid) {
     groupName = meta?.subject || gid;
   } catch (_) {}
   try {
-    const grpText =
-      (await generateSecondInviteRejectedCaption(groupName).catch(() => null)) ||
-      pickRandomMsg(TRIAL_REJECT_GROUP);
-    await sock.sendMessage(gid, { text: grpText });
+    await sendTrialReinviteRejectedFarewell(sock, gid, {
+      groupLabel: groupName,
+      getFallbackCaption: () => pickRandomMsg(TRIAL_REJECT_GROUP),
+      delayBeforeNextMs: 2500,
+    });
   } catch (e) { console.error('[TRIAL-DENY-GROUP]', e.message); }
-
-  await new Promise(r => setTimeout(r, 2500));
 
   const addShort = adderJid
     ? `\n(invocador conocido técnico: ${adderJid.split('@')[0]})`
