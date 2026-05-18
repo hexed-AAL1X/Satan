@@ -704,6 +704,16 @@ async function startBot() {
     }
   });
 
+  // --- Bot añadido a grupo (evento principal) ---
+  sock.ev.on('groups.upsert', async (groups) => {
+    for (const group of groups) {
+      console.log(`[GROUPS.UPSERT] nuevo grupo detectado: ${group.id} (${group.subject || '?'})`);
+      if (group.id?.endsWith('@g.us')) {
+        scheduleJoinWelcomeRetries(sock, group.id);
+      }
+    }
+  });
+
   // --- Mensajes ---
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
