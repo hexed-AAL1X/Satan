@@ -30,6 +30,8 @@ function getGroq() {
 
 const recentlyRecommended = new Set();
 
+const { isForbiddenNonCircleGenre, rejectionMessageShort } = require('../utils/circle-genre-guard');
+
 async function getUndergroundRecommendations(genre) {
   const groq = getGroq();
   if (!groq) return null;
@@ -46,17 +48,36 @@ async function getUndergroundRecommendations(genre) {
     'System of a Down','Rammstein','Nightwish','Arch Enemy','In Flames','Opeth','Meshuggah',
     'Tool','Gojira','Mastodon','Ghost','Sabaton','Amon Amarth','Children of Bodom',
   ].join(', ');
-  const isDescriptive = genre && !/^[a-záéíóúüñ\s]+$/i.test(genre) || (genre && genre.split(' ').length > 2);
-  const searchContext = isDescriptive
-    ? `que tengan estas características: ${genre}`
-    : `del género ${genre || 'metal extremo'}`;
-  const prompt = `Eres un experto en metal extremo con acceso a bandas muy oscuras y desconocidas. Recomienda exactamente 3 bandas de metal ${searchContext} que sean MUY poco conocidas, de culto, con menos de 20,000 oyentes mensuales en total — de Latinoamérica, Noruega, Suecia, Finlandia, Polonia, Brasil, Grecia, México, Colombia, Chile u otros países. Prioriza bandas que solo los fanáticos más dedicados conocen. NUNCA recomiendes estas bandas: ${banned}. ${alreadySeen}
+  const rawGenre = String(genre || '').trim();
+  const isLatinDanceAsk = /\b(?:cumbia|bachata|salsa|merengue)\b/i.test(rawGenre);
 
-IMPORTANTE: en el campo "why", escribe en español pero NUNCA traduzcas los géneros musicales — siempre en inglés (black metal, death metal, doom metal, thrash metal, etc). No uses la palabra "underground".
+  const isDescriptive =
+    genre && (!/^[a-záéíóúüñ\s]+$/i.test(genre) || (genre && genre.split(' ').length > 2));
+  let searchContext;
+  if (isDescriptive) {
+    searchContext = `que cumplan esta petición SIN SALIR del mundo permitido (METAL ROCK PESADO PUNK DURA y si el texto habla de fiesta latina CUMBIA BACHATA SALSA MERENGUE dentro de la misma tribu): ${genre}`;
+  } else if (isLatinDanceAsk) {
+    searchContext = `dentro solo del género latino fiestero ${genre}: artistas poco masivos o de culto, nada de estrella radial obvia`;
+  } else {
+    searchContext = `del núcleo METAL ROCK PESADO (incluye subgéneros doom death black folk stoner punk duro industriales etc): ${genre || 'metal extremo'}`;
+  }
+
+  const alcance =
+    `MUNDO PERMITIDO: todo METAL cualquier subtipo, ROCK OSCURO o PESADO cercano METALHEADS incluye hard rock progre oscuro punk Oi hardcore cuando la tribu los escucha.` +
+    ` También válido cuando el texto lo pide: CUMBIA BACHATA SALSA MERENGUE priorizando perfiles menos masivos cuando puedas.\n\n` +
+    `MUNDOS IGNORADOS: TRAP latin trap REGGAETON DEMBOW REGGAE KPOP Jpop Cpop hyperpop idols AFROBEATS R&B música infantil playlists radio.\n`;
+
+  const prompt = `${alcance}
+
+Eres un experto dentro de ese CIRCLE únicamente. Recomienda exactamente ${isLatinDanceAsk ? '3 artistas (pueden ser solistas) o agrupaciones' : '3 bandas'} ${searchContext} que sean MUY poco conocidas, menos de 20 000 oyentes mensuales aprox cuando sea posible mencionar ese matiz en el why.
+Prioriza Latinoamérica Scandinavia Este Europa otros focos donde haya ESCENA seria.
+NUNCA recomiendes estas bandas: ${banned}. ${alreadySeen}
+
+IMPORTANTE campo why en español sin traducir géneros al castellano (black metal doom metal siguen inglés cuando toque metal). Sin palabra "underground".
 
 Responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin markdown:
 [
-  {"band":"nombre","country":"país","album":"álbum recomendado","year":"año","why":"una línea en español de por qué es especial"},
+  {"band":"nombre","country":"país","album":"album o disco recomendado","year":"año","why":"una línea en español de por qué es especial"},
   {"band":"...","country":"...","album":"...","year":"...","why":"..."},
   {"band":"...","country":"...","album":"...","year":"...","why":"..."}
 ]`;
@@ -117,7 +138,12 @@ const OUTRO_FALLBACK = [
 ];
 
 async function sendRecommendations(sock, jid, genre) {
-  const bands = await getUndergroundRecommendations(genre);
+  const gRaw = (genre || '').trim();
+  if (isForbiddenNonCircleGenre(gRaw)) {
+    await sendWithTyping(sock, jid, rejectionMessageShort());
+    return;
+  }
+  const bands = await getUndergroundRecommendations(gRaw || 'metal extremo');
   if (!bands?.length) {
     await sendWithTyping(sock, jid, `☠️ no encontré nada esta vez\nintenta de nuevo MORTAL 🖤`);
     return;
@@ -363,7 +389,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       `🔥 *!streak* — tu racha de días aportando\n` +
       `🎵 *!band [nombre]* — info + imagen de una banda\n` +
       `💿 *!album [álbum] de [banda]* — portada + info\n` +
-      `🩸 *!recomienda [género o descripción]* — 3 bandas de culto\n` +
+      `🩸 *!recomienda [género o descripción]* — culto metal rock o cumbia bachata salsa de la tribu\n` +
       `🎤 *!letra [canción] por [artista]* — letra + portada\n` +
       `☠️ *!trivia [facil|medio|dificil]* — pregunta de 30s\n` +
       `📜 *!ruleset* — reglas del CIRCLE\n` +
@@ -374,6 +400,9 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
 
   if (command === '!recomienda') {
     const query = args.join(' ') || 'metal extremo';
+    if (isForbiddenNonCircleGenre(query)) {
+      return rejectionMessageShort();
+    }
     sendRecommendations(sock, jid, query).catch(console.error);
     return null;
   }
@@ -452,6 +481,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   if (command === '!band') {
     const band = args.join(' ');
     if (!band) return `⚔️ Uso: !band [nombre de banda]\nEjemplo: !band Mayhem`;
+    if (isForbiddenNonCircleGenre(band)) return rejectionMessageShort();
     getBandInfo(sock, jid, band).catch(console.error);
     return null;
   }
@@ -459,6 +489,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   if (command === '!album') {
     const query = args.join(' ');
     if (!query) return `⚔️ Uso: !album [nombre del álbum] de [banda]\nEjemplo: !album Reign in Blood de Slayer\nO solo: !album Reign in Blood`;
+    if (isForbiddenNonCircleGenre(query)) return rejectionMessageShort();
     getAlbumInfo(sock, jid, query).catch(console.error);
     return null;
   }
@@ -477,6 +508,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   if (command === '!letra') {
     const query = args.join(' ');
     if (!query) return `⚔️ Uso: !letra [canción] por [artista]\nEjemplo: !letra Freezing Moon por Mayhem`;
+    if (isForbiddenNonCircleGenre(query)) return rejectionMessageShort();
     getLyrics(sock, jid, query).catch(console.error);
     return null;
   }
