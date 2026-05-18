@@ -140,6 +140,7 @@ function idLooksLikeOwner(jidStr) {
 /** Primera bienvenida al entrar el bot: usa metadata (LID, eventos incompletos). */
 async function ensureJoinWelcome(sock, gid, authorJid) {
   if (!gid || !String(gid).endsWith('@g.us')) return;
+  if (hasGroupPresentation(gid)) return;
 
   let meta;
   try {
@@ -150,12 +151,17 @@ async function ensureJoinWelcome(sock, gid, authorJid) {
   }
 
   const botIn = meta.participants?.some((p) => participantIdLooksLikeBot(sock, p.id));
-  if (!botIn) return;
-  if (hasGroupPresentation(gid)) return;
+  if (!botIn) {
+    console.warn(`[JOIN-WELCOME] bot no detectado en metadata de ${gid} — continuando de todos modos (evento add lo confirma)`);
+  }
 
   let ownerAdd = idLooksLikeOwner(authorJid);
+  // Fallback: si el author no matchea por LID, buscar al owner en la metadata del grupo
+  if (!ownerAdd && meta.participants) {
+    ownerAdd = meta.participants.some((p) => p.admin && idLooksLikeOwner(p.id));
+  }
 
-  console.log(`[JOIN-WELCOME] gid=${gid} author=${authorJid || '∅'} ownerAdd=${ownerAdd}`);
+  console.log(`[JOIN-WELCOME] gid=${gid} author=${authorJid || '∅'} ownerAdd=${ownerAdd} botIn=${botIn}`);
 
   if (!ownerAdd) {
     if (isTrialConsumed(gid)) {
@@ -189,6 +195,7 @@ function scheduleJoinWelcomeRetries(sock, gid, authorJid) {
   const auth = authorJid || '';
   setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 2000);
   setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 7500);
+  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 20000);
 }
 
 async function endTrialAndLeave(sock, gid) {
