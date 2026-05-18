@@ -11,7 +11,7 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 const http = require('http');
 
-const { upsertUser, getDb, updateLevel, removeUser, isUserMuted, hasGroupPresentation, markGroupPresentation, removeGroupPresentation, isGroupApproved, approveGroup, unapproveGroup, startTrial, getTrialStart, endTrial, getAllTrials } = require('./db');
+const { upsertUser, getDb, updateLevel, removeUser, isUserMuted, hasGroupPresentation, markGroupPresentation, removeGroupPresentation, isGroupApproved, approveGroup, unapproveGroup, startTrial, getTrialStart, endTrial, getAllTrials, markTrialConsumed, isTrialConsumed } = require('./db');
 const { getLevelName, getLevelEmoji } = require('./scheduler/ranking');
 const { getWelcomeMessage, sendBotPresentation } = require('./handlers/welcome');
 const { getSatanResponse } = require('./handlers/satan-dm');
@@ -60,6 +60,52 @@ const TRIAL_END = [
   `el período de PRUEBA expiró ⌛\n\nles regalé ${TRIAL_HOURS} horas de poder absoluto pero nadie negoció con mi GUARDIÁN\n\nel CIRCLE se cierra para ustedes 💀 vuelvo al ABISMO de donde vine\n\n🔱 si cambian de opinión y quieren al INFRAMUNDO como aliado permanente\n📞 *wa.me/${OWNER_NUMBER}* hablen con el SEÑOR\n\nadiós ⚔️ ☠️`,
 ];
 
+const TRIAL_REJECT_GROUP = [
+  `😤 no NO y NO ⚔️ creen que voy a repetir REGALOS a este CIRCLE 👁️\n\nYA acabaron su PRUEBA mortales esa puerta cerró 🔥 nadie ME arrastra gratis otra vez\n\nhablen con el SEÑOR si quieren NEGOCIAR 🤘 hasta nunca 💀`,
+  `QUÉ DESCARO 👁️ otra INVOCACIÓN después de gastar vuestra caricia de 12 horas ☠️\n\nel INFRAMUNDO no olvida y no perdona segunda dosis GRATIS 🔥 váyanse\n\ncontacten al GUARDIÁN *wa.me/${OWNER_NUMBER}* si pueden PAGAR con respeto ⛧`,
+  `insolencia PURA ⚔️ creen repetir EXPERIMENTO después de rechazar al amo del ABISMO 🩸\n\naquí terminó vuestra segunda oportunidad INEXISTENTE ☠️ adiós 🔥`,
+];
+
+const TRIAL_REJECT_OWNER_DM = (groupName, adderSnippet) => [
+  `MI SEÑOR 🔱 el CIRCLE *${groupName}* está tomando TU paciencia a broma ⚔️\n\nunos MORTALES me volvieron a meter creyendo que aquí hay FESTIVAL GRATUITO segunda edición 🔥 esa PRUEBA ya EXISTIÓ ya MURIÓ 💀 yo no repito esa película\n\nhasta que usted no LOS bendiga con acuerdo serio NO tienen nueva llave${adderSnippet}`,
+  `AMO 👁️ llamada de BATALLA ⚔️ *${groupName}* 🔥 mismo salón MISMA audacia sin permiso después de que YA se les acabó el tiempo de cortesía 🩸\n\nSATÁN no trabaja así en modo bucle gratis para NADIE ☠️ me salí y dejé HUMO\n\nLOS suyos que negocien con usted SI quieren VOLVER 📞`,
+  `MAESTRO ⛧ *${groupName}* 👎 nueva invocación después de período YA quemado\n\naquí nadie colecciona muestras infinitas el INFRAMUNDO tiene memoria ⚔️${adderSnippet}\n\nellos CONTACTEN`,
+];
+
+async function rejectSecondTrialInvitation(sock, gid, adderJid) {
+  console.log(`[TRIAL-DENIED] segunda invitacion sin derecho grupo=${gid}`);
+  let groupName = gid;
+  try {
+    const meta = await sock.groupMetadata(gid);
+    groupName = meta?.subject || gid;
+  } catch (_) {}
+  try {
+    await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_REJECT_GROUP) });
+  } catch (e) { console.error('[TRIAL-DENY-GROUP]', e.message); }
+
+  await new Promise(r => setTimeout(r, 2500));
+
+  const addShort = adderJid
+    ? `\n(invocador conocido técnico: ${adderJid.split('@')[0]})`
+    : '';
+  const dm = pickRandomMsg(TRIAL_REJECT_OWNER_DM(groupName, addShort));
+  const dmFinal = dm.includes('wa.me')
+    ? dm
+    : `${dm}\n\n📞 *wa.me/${OWNER_NUMBER}*`;
+  try {
+    await sock.sendMessage(OWNER_JID, { text: dmFinal });
+  } catch (e) { console.error('[TRIAL-DENY-DM]', e.message); }
+
+  try {
+    await sock.groupLeave(gid);
+  } catch (e) { console.error('[TRIAL-DENY-LEAVE]', e.message); }
+
+  removeGroupPresentation(gid);
+  unapproveGroup(gid);
+  endTrial(gid);
+  global._knownGroups?.delete(gid);
+}
+
 function pickRandomMsg(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 async function endTrialAndLeave(sock, gid) {
@@ -72,6 +118,7 @@ async function endTrialAndLeave(sock, gid) {
   endTrial(gid);
   removeGroupPresentation(gid);
   unapproveGroup(gid);
+  markTrialConsumed(gid);
   global._knownGroups?.delete(gid);
 }
 
@@ -204,6 +251,12 @@ async function startBot() {
           if (isGroupApproved(gid)) continue;
           const trialStart = getTrialStart(gid);
           if (!trialStart) {
+            if (isTrialConsumed(gid)) {
+              console.log(`[STARTUP-TRIAL] trial ya gastado para ${gid} — rechazo reinvitacion`);
+              await rejectSecondTrialInvitation(sock, gid, '');
+              await new Promise(r => setTimeout(r, 2000));
+              continue;
+            }
             console.log(`[STARTUP-TRIAL] iniciando prueba en grupo no aprobado: ${gid}`);
             startTrial(gid);
             if (!hasGroupPresentation(gid)) {
@@ -516,8 +569,12 @@ async function startBot() {
         (ownerLidResolved && adderJid.includes(ownerLidResolved));
       console.log(`[BOT-ADD] grupo=${update.id} adder=${adderJid} ownerLid=${ownerLidResolved} isOwner=${adderIsOwner}`);
 
-      // Si NO es el owner → modo trial comercial (12h gratis, luego se va)
+      // Si NO es el owner → trial una sola vez por grupo si no marcó demo como gastada
       if (!adderIsOwner) {
+        if (isTrialConsumed(update.id)) {
+          rejectSecondTrialInvitation(sock, update.id, adderJid).catch(e => console.error('[TRIAL-DENY]', e.message));
+          return;
+        }
         console.log(`[TRIAL-START] grupo ${update.id} entra a período de prueba de ${TRIAL_HOURS}h`);
         if (!getTrialStart(update.id)) startTrial(update.id);
         if (!hasGroupPresentation(update.id)) {

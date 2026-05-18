@@ -297,6 +297,9 @@ module.exports = {
   getTrialStart,
   endTrial,
   getAllTrials,
+  markTrialConsumed,
+  isTrialConsumed,
+  clearTrialConsumed,
 };
 
 function isGroupApproved(groupId) {
@@ -308,6 +311,7 @@ function isGroupApproved(groupId) {
 function approveGroup(groupId) {
   const db = getDb();
   db.prepare(`INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)`).run(`approved_${groupId}`, '1');
+  clearTrialConsumed(groupId);
 }
 
 function unapproveGroup(groupId) {
@@ -335,8 +339,25 @@ function endTrial(groupId) {
 
 function getAllTrials() {
   const db = getDb();
-  return db.prepare(`SELECT key, value FROM bot_state WHERE key LIKE 'trial_%'`).all()
+  return db.prepare(`
+    SELECT key, value FROM bot_state
+    WHERE key LIKE 'trial_%' AND key NOT LIKE 'trial_consumed_%'
+  `).all()
     .map(r => ({ groupId: r.key.replace('trial_', ''), startedAt: parseInt(r.value) }));
+}
+
+/** El grupo ya gastó su prueba gratuita única sin aprobación del owner */
+function markTrialConsumed(groupId) {
+  getDb().prepare(`INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)`).run(`trial_consumed_${groupId}`, '1');
+}
+
+function isTrialConsumed(groupId) {
+  const row = getDb().prepare(`SELECT value FROM bot_state WHERE key = ?`).get(`trial_consumed_${groupId}`);
+  return !!row;
+}
+
+function clearTrialConsumed(groupId) {
+  getDb().prepare(`DELETE FROM bot_state WHERE key = ?`).run(`trial_consumed_${groupId}`);
 }
 
 function hasGroupPresentation(groupId) {

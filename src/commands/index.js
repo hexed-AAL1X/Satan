@@ -506,8 +506,9 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
         return `🔱 grupo aprobado PERMANENTE ☠️`;
       }
       if (command === '!degradar' || command === '!trial') {
-        const { unapproveGroup, startTrial, getTrialStart } = require('../db');
+        const { unapproveGroup, startTrial, getTrialStart, clearTrialConsumed } = require('../db');
         unapproveGroup(jid);
+        clearTrialConsumed(jid);
         if (!getTrialStart(jid)) startTrial(jid);
         return `⌛ modo TRIAL activado — 12h y me voy ☠️`;
       }
@@ -654,8 +655,9 @@ async function handlePendingMenu(sock, ownerJid, text) {
     try { await sock.sendMessage(gid, { text: `🔱 el SEÑOR ha autorizado mi presencia aquí de manera PERMANENTE\nel INFRAMUNDO es su guardián eterno ☠️ 🤘` }); } catch (_) {}
 
   } else if (action === '!degradar' || action === '!trial') {
-    const { unapproveGroup, startTrial, getTrialStart } = require('../db');
+    const { unapproveGroup, startTrial, getTrialStart, clearTrialConsumed } = require('../db');
     unapproveGroup(gid);
+    clearTrialConsumed(gid);
     if (!getTrialStart(gid)) startTrial(gid);
     const ts = getTrialStart(gid);
     const TRIAL_MS = 12 * 60 * 60 * 1000;
@@ -672,7 +674,7 @@ async function handlePendingMenu(sock, ownerJid, text) {
 // ─── Helpers internos ────────────────────────────────────────────────────────
 
 async function kickGroupWithFarewell(sock, ownerJid, targetGid, query) {
-  const { unapproveGroup, endTrial, removeGroupPresentation } = require('../db');
+  const { unapproveGroup, endTrial, removeGroupPresentation, markTrialConsumed } = require('../db');
 
   const TRIAL_END = [
     `⌛ el RELOJ del INFRAMUNDO marca el final\n\nles concedí mi presencia 🩸 espero que hayan tomado nota MORTALES\n\nme retiro al ABISMO porque mi GUARDIÁN no ha autorizado mi permanencia aquí 👁️\n\n🔱 si DESEAN tenerme de vuelta como su moderador del CIRCLE 🤘\n📞 contacten al SEÑOR *wa.me/51943605088*\n\nadiós ☠️ el inframundo nunca olvida`,
@@ -689,6 +691,7 @@ async function kickGroupWithFarewell(sock, ownerJid, targetGid, query) {
     } catch (err) { console.error('[KICK]', err.message); }
     unapproveGroup(gid);
     endTrial(gid);
+    markTrialConsumed(gid);
     if (removeGroupPresentation) removeGroupPresentation(gid);
     if (ownerJid) {
       await sock.sendMessage(ownerJid, { text: `✅ salí de *${groupName}* con mensaje de despedida ☠️` }).catch(() => {});
