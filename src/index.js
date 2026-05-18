@@ -767,11 +767,49 @@ async function startBot() {
 
         // 5. Reacción cuando alguien responde a un mensaje del bot
         if (isGroup && text) {
-          const quotedParticipant = msg.message?.extendedTextMessage?.contextInfo?.participant || '';
+          const ctxQuoted = ctxInfo || msg.message?.extendedTextMessage?.contextInfo || {};
+          const quotedParticipant = ctxQuoted.participant || '';
           const isReplyToBot = quotedParticipant && (
             (botNumber && quotedParticipant.includes(botNumber)) ||
             (botLid && quotedParticipant.includes(botLid))
           );
+
+          // Si responde a una recomendación / banda / álbum del bot pidiendo link o info → redirige a !album o !band
+          if (isReplyToBot && !isMentioned) {
+            const lowText = text.toLowerCase();
+            const wantsLink = /link|enlace|pásame|pasame|escuchar|donde lo|d[oó]nde|cómo lo|como lo|info|m[aá]s info|cu[eé]ntame|cuentame|de ese|de este|mu[eé]strame|muestrame/.test(lowText);
+            if (wantsLink) {
+              const quotedMsg = ctxQuoted.quotedMessage || {};
+              const quotedCaption = quotedMsg.imageMessage?.caption ||
+                quotedMsg.videoMessage?.caption ||
+                quotedMsg.extendedTextMessage?.text ||
+                quotedMsg.conversation || '';
+
+              // Patrones de las recomendaciones (markdown WhatsApp con asteriscos)
+              // Formato típico: "💿 *Banda* — País\n🩸 Album: *Nombre Album* (Año)"
+              const bandMatch = quotedCaption.match(/[💿🎸🩸]\s*\*([^*\n]+)\*/);
+              const albumMatch = quotedCaption.match(/[Aa]lbum:\s*[_*]?([^_*\n(]+?)[_*]?\s*(?:\(|$)/);
+
+              const band = bandMatch ? bandMatch[1].trim() : null;
+              const album = albumMatch ? albumMatch[1].trim() : null;
+
+              if (band && album) {
+                const { getAlbumInfo } = require('./commands');
+                console.log(`[QUOTED-LINK] band=${band} album=${album}`);
+                await sendWithTyping(sock, jid, { text: `🔥 invocando *${album}* de *${band}* ⚔️`, mentions: [senderJid] }, { quoted: msg });
+                getAlbumInfo(sock, jid, `${album} de ${band}`).catch(() => {});
+                continue;
+              }
+              if (band) {
+                const { getBandInfo } = require('./commands');
+                console.log(`[QUOTED-LINK] solo band=${band}`);
+                await sendWithTyping(sock, jid, { text: `🔥 invocando *${band}* ⚔️`, mentions: [senderJid] }, { quoted: msg });
+                getBandInfo(sock, jid, band).catch(() => {});
+                continue;
+              }
+            }
+          }
+
           if (isReplyToBot && !isMentioned) {
             const t = text.toLowerCase();
             const isInsult = /idiota|estúpido|tonto|inútil|malo|feo|cállate|shut|hdp|mrd|ctm|aweo|gil|pelotu|puta|puto|mierda|conchat|weon|huevon|imbécil|basura|pene|verga|pito|culo/.test(t);
