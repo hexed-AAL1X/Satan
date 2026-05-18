@@ -495,18 +495,34 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
 
   // --- Owner-only: aprobar/desaprobar grupo (modo comercial) ---
   if (command === '!aprobar' || command === '!approve') {
-    if (!isOwner) return null; // silencio si no es owner
+    if (!isOwner) return null;
     const { approveGroup, endTrial } = require('../db');
-    approveGroup(jid);
-    endTrial(jid);
-    return `🔱 grupo aprobado por el SEÑOR\nel INFRAMUNDO se queda aquí de manera PERMANENTE ☠️`;
+    const nameQuery = args.join(' ').trim();
+
+    // Sin argumento: aprobar el grupo actual
+    if (!nameQuery || jid.endsWith('@g.us')) {
+      approveGroup(jid);
+      endTrial(jid);
+      return `🔱 grupo aprobado por el SEÑOR\nel INFRAMUNDO se queda aquí de manera PERMANENTE ☠️`;
+    }
+
+    // Con argumento desde privado: buscar grupo por nombre parcial
+    approveGroupByName(sock, senderJid, nameQuery).catch(e => console.error('[APROBAR]', e.message));
+    return null;
   }
 
   if (command === '!desaprobar' || command === '!unapprove') {
     if (!isOwner) return null;
     const { unapproveGroup } = require('../db');
-    unapproveGroup(jid);
-    return `⚔️ grupo desaprobado\nel próximo reinicio aplicará período de prueba`;
+    const nameQuery = args.join(' ').trim();
+
+    if (!nameQuery || jid.endsWith('@g.us')) {
+      unapproveGroup(jid);
+      return `⚔️ grupo desaprobado\nel próximo reinicio aplicará período de prueba`;
+    }
+
+    unapproveGroupByName(sock, senderJid, nameQuery).catch(e => console.error('[DESAPROBAR]', e.message));
+    return null;
   }
 
   // --- Owner-only: reporte de grupos (PRO + TRIAL) enviado al privado ---
@@ -520,6 +536,46 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   }
 
   return null;
+}
+
+async function approveGroupByName(sock, ownerJid, query) {
+  const { approveGroup, endTrial } = require('../db');
+  let groups = {};
+  try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
+    await sock.sendMessage(ownerJid, { text: `⚠️ no pude obtener grupos: ${e.message}` });
+    return;
+  }
+  const q = query.toLowerCase();
+  const matches = Object.entries(groups).filter(([, m]) => (m?.subject || '').toLowerCase().includes(q));
+  if (!matches.length) {
+    await sock.sendMessage(ownerJid, { text: `👁️ no encontré ningún grupo con "${query}" SEÑOR` });
+    return;
+  }
+  for (const [gid, meta] of matches) {
+    approveGroup(gid);
+    endTrial(gid);
+    await sock.sendMessage(ownerJid, { text: `🔱 *${meta.subject}* → aprobado PERMANENTE ☠️` });
+    try { await sock.sendMessage(gid, { text: `🔱 el SEÑOR ha autorizado mi presencia aquí de manera PERMANENTE\nel INFRAMUNDO es ahora su guardián eterno ☠️ 🤘` }); } catch (_) {}
+  }
+}
+
+async function unapproveGroupByName(sock, ownerJid, query) {
+  const { unapproveGroup } = require('../db');
+  let groups = {};
+  try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
+    await sock.sendMessage(ownerJid, { text: `⚠️ no pude obtener grupos: ${e.message}` });
+    return;
+  }
+  const q = query.toLowerCase();
+  const matches = Object.entries(groups).filter(([, m]) => (m?.subject || '').toLowerCase().includes(q));
+  if (!matches.length) {
+    await sock.sendMessage(ownerJid, { text: `👁️ no encontré ningún grupo con "${query}" SEÑOR` });
+    return;
+  }
+  for (const [gid, meta] of matches) {
+    unapproveGroup(gid);
+    await sock.sendMessage(ownerJid, { text: `⚔️ *${meta.subject}* → desaprobado` });
+  }
 }
 
 function fmtRemaining(ms) {
