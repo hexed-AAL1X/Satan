@@ -147,35 +147,36 @@ Solo el mensaje, sin comillas ni explicaciones.`;
 }
 
 async function sendBotPresentation(sock, jid) {
-  console.log(`[PRESENTACION] inicio para ${jid}`);
-  const msg = await generateBotPresentation();
-  console.log(`[PRESENTACION] texto listo (${msg.length} chars), enviando...`);
+  console.log(`[PRESENT] inicio ${jid}`);
 
-  // Intentar con imagen
-  if (fs.existsSync(SATAN_IMG)) {
-    try {
-      const imgBuffer = fs.readFileSync(SATAN_IMG);
-      console.log(`[PRESENTACION] imagen leída (${imgBuffer.length} bytes)`);
-      await Promise.race([
-        sock.sendMessage(jid, { image: imgBuffer, caption: msg }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('img send timeout 12s')), 12000)),
-      ]);
-      console.log(`[PRESENTACION] ✓ enviado con imagen`);
+  // 1. Texto: fallback instantáneo, intentar Groq en background
+  let msg = PRESENTATION_FALLBACK[Math.floor(Math.random() * PRESENTATION_FALLBACK.length)];
+  try {
+    const aiMsg = await generateBotPresentation();
+    if (aiMsg) msg = aiMsg;
+  } catch (_) {}
+  console.log(`[PRESENT] texto OK (${msg.length} chars)`);
+
+  // 2. Enviar: intentar imagen, si falla enviar solo texto
+  try {
+    if (fs.existsSync(SATAN_IMG)) {
+      console.log(`[PRESENT] enviando imagen+caption...`);
+      await sock.sendMessage(jid, { image: fs.readFileSync(SATAN_IMG), caption: msg });
+      console.log(`[PRESENT] ✓ imagen enviada`);
       return true;
-    } catch (e) {
-      console.error('[PRESENTACION] imagen falló:', e.message, '— enviando solo texto');
     }
-  } else {
-    console.warn(`[PRESENTACION] imagen no encontrada en ${SATAN_IMG}`);
+  } catch (e) {
+    console.error(`[PRESENT] imagen falló: ${e.message}`);
   }
 
-  // Fallback: solo texto (sin typing delay para rapidez)
+  // 3. Fallback texto puro
   try {
+    console.log(`[PRESENT] enviando solo texto...`);
     await sock.sendMessage(jid, { text: msg });
-    console.log(`[PRESENTACION] ✓ enviado solo texto`);
+    console.log(`[PRESENT] ✓ texto enviado`);
     return true;
   } catch (e) {
-    console.error('[PRESENTACION] ✗ texto también falló:', e.message);
+    console.error(`[PRESENT] ✗ todo falló: ${e.message}`);
     return false;
   }
 }

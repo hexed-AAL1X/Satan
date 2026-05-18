@@ -137,85 +137,34 @@ function idLooksLikeOwner(jidStr) {
   return !!(ol && jidStr.includes(ol));
 }
 
-/** Lock en memoria para evitar ejecuciones paralelas pero permitir reintentos si falla */
-const _presentationInProgress = new Set();
+const _presentationLock = new Set();
 
-/** Primera bienvenida al entrar el bot: envía presentación con imagen. */
-async function ensureJoinWelcome(sock, gid, authorJid) {
+async function ensureJoinWelcome(sock, gid) {
   if (!gid || !String(gid).endsWith('@g.us')) return;
-  if (hasGroupPresentation(gid)) return;
-  if (_presentationInProgress.has(gid)) return;
-  _presentationInProgress.add(gid);
-
-  console.log(`[JOIN-WELCOME] iniciando para ${gid} author=${authorJid || '∅'}`);
-
+  if (hasGroupPresentation(gid)) { console.log(`[JOIN] ya presentado ${gid}`); return; }
+  if (_presentationLock.has(gid)) { console.log(`[JOIN] lock activo ${gid}`); return; }
+  _presentationLock.add(gid);
+  console.log(`[JOIN] → intentando presentación en ${gid}`);
   try {
-    // Detectar owner para PRO vs TRIAL (no bloquea el envío)
-    let ownerAdd = idLooksLikeOwner(authorJid);
-    if (!ownerAdd && !global._ownerLid) {
-      try {
-        const check = await Promise.race([
-          sock.onWhatsApp(OWNER_NUMBER),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
-        ]);
-        if (check?.[0]?.lid) {
-          global._ownerLid = check[0].lid.split('@')[0];
-          console.log(`[JOIN-WELCOME] owner LID: ${global._ownerLid}`);
-        }
-      } catch (_) {}
-      ownerAdd = idLooksLikeOwner(authorJid);
-    }
-    if (!ownerAdd) {
-      try {
-        const meta = await Promise.race([
-          sock.groupMetadata(gid),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-        ]);
-        if (meta?.owner) ownerAdd = idLooksLikeOwner(meta.owner);
-        if (!ownerAdd && meta?.participants) {
-          ownerAdd = meta.participants.some((p) => p.admin && idLooksLikeOwner(p.id));
-        }
-        if (!ownerAdd && meta?.participants?.length <= 2) ownerAdd = true;
-      } catch (_) {
-        ownerAdd = true; // si no podemos verificar, asumir owner (mejor enviar presentación)
-      }
-    }
-
-    console.log(`[JOIN-WELCOME] gid=${gid} ownerAdd=${ownerAdd}`);
-
-    if (ownerAdd) {
-      approveGroup(gid);
-      endTrial(gid);
-      clearTrialConsumed(gid);
-    } else {
-      if (isTrialConsumed(gid)) {
-        rejectSecondTrialInvitation(sock, gid, authorJid || '').catch((e) => console.error('[JOIN-WELCOME-DENY]', e.message));
-        _presentationInProgress.delete(gid);
-        return;
-      }
-      if (!getTrialStart(gid)) startTrial(gid);
-    }
-
-    // Enviar presentación con imagen
     const ok = await sendBotPresentation(sock, gid);
     if (ok) {
       markGroupPresentation(gid);
-      console.log(`[JOIN-WELCOME] ✓ presentación enviada a ${gid}`);
+      approveGroup(gid);
+      console.log(`[JOIN] ✓ presentación OK en ${gid}`);
     } else {
-      console.error(`[JOIN-WELCOME] ✗ presentación falló para ${gid} — reintentará`);
+      console.error(`[JOIN] ✗ fallo en ${gid}, reintentará`);
     }
   } catch (e) {
-    console.error('[JOIN-WELCOME-ERROR]', gid, e.message);
+    console.error(`[JOIN] error ${gid}:`, e.message);
   } finally {
-    _presentationInProgress.delete(gid);
+    _presentationLock.delete(gid);
   }
 }
 
-function scheduleJoinWelcomeRetries(sock, gid, authorJid) {
-  const auth = authorJid || '';
-  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 1000);
-  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 6000);
-  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 15000);
+function scheduleJoinWelcomeRetries(sock, gid) {
+  [2000, 8000, 20000, 45000].forEach((ms) => {
+    setTimeout(() => ensureJoinWelcome(sock, gid).catch((e) => console.error('[JOIN]', e.message)), ms);
+  });
 }
 
 async function endTrialAndLeave(sock, gid) {
@@ -328,14 +277,14 @@ async function startBot() {
 
     if (!update.participants?.length) {
       if (update.action === 'add') {
-        scheduleJoinWelcomeRetries(sock, update.id, update.author || '');
+        scheduleJoinWelcomeRetries(sock, update.id);
       }
       return;
     }
 
     if (update.action === 'add') {
       knownGroups.add(update.id);
-      scheduleJoinWelcomeRetries(sock, update.id, update.author || '');
+      scheduleJoinWelcomeRetries(sock, update.id);
     }
 
     if (update.action !== 'add') return;
@@ -760,6 +709,18 @@ async function startBot() {
     if (type !== 'notify') return;
 
     for (const msg of messages) {
+      // Detectar si el bot fue añadido a un grupo (mensaje de sistema)
+      const stubType = msg.messageStubType;
+      const isGroupAdd = stubType === 27 || stubType === 28; // GROUP_PARTICIPANT_ADD / INVITE
+      if (isGroupAdd && msg.key.remoteJid?.endsWith('@g.us')) {
+        const participants = msg.messageStubParameters || [];
+        const botAdded = participants.some((p) => participantIdLooksLikeBot(sock, p));
+        if (botAdded) {
+          console.log(`[MSG-STUB] bot añadido detectado via messages.upsert en ${msg.key.remoteJid}`);
+          scheduleJoinWelcomeRetries(sock, msg.key.remoteJid);
+        }
+      }
+
       if (msg.key.fromMe) continue;
       if (!msg.message) continue;
 
