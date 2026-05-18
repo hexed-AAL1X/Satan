@@ -155,13 +155,40 @@ async function ensureJoinWelcome(sock, gid, authorJid) {
     console.warn(`[JOIN-WELCOME] bot no detectado en metadata de ${gid} — continuando de todos modos (evento add lo confirma)`);
   }
 
+  // Resolver ownerLid si no se hizo al inicio (puede fallar en startup)
+  if (!global._ownerLid) {
+    try {
+      const check = await sock.onWhatsApp(OWNER_NUMBER);
+      if (check?.[0]?.lid) {
+        global._ownerLid = check[0].lid.split('@')[0];
+        console.log(`[JOIN-WELCOME] owner LID resuelto tardío: ${global._ownerLid}`);
+      }
+    } catch (_) {}
+  }
+
   let ownerAdd = idLooksLikeOwner(authorJid);
-  // Fallback: si el author no matchea por LID, buscar al owner en la metadata del grupo
+  // Fallback 1: meta.owner (creador del grupo)
+  if (!ownerAdd && meta.owner) {
+    ownerAdd = idLooksLikeOwner(meta.owner);
+  }
+  // Fallback 2: buscar al owner entre admins del grupo
   if (!ownerAdd && meta.participants) {
     ownerAdd = meta.participants.some((p) => p.admin && idLooksLikeOwner(p.id));
   }
+  // Fallback 3: si el grupo solo tiene 2 participantes (bot + quien lo añadió) asumir owner
+  if (!ownerAdd && meta.participants?.length === 2) {
+    const nonBot = meta.participants.find((p) => !participantIdLooksLikeBot(sock, p.id));
+    if (nonBot) {
+      ownerAdd = true;
+      // Guardar LID del owner para futuras detecciones
+      if (!global._ownerLid) {
+        global._ownerLid = nonBot.id.split('@')[0].split(':')[0];
+        console.log(`[JOIN-WELCOME] owner LID inferido de grupo 2-personas: ${global._ownerLid}`);
+      }
+    }
+  }
 
-  console.log(`[JOIN-WELCOME] gid=${gid} author=${authorJid || '∅'} ownerAdd=${ownerAdd} botIn=${botIn}`);
+  console.log(`[JOIN-WELCOME] gid=${gid} author=${authorJid || '∅'} ownerLid=${global._ownerLid || '?'} ownerAdd=${ownerAdd} botIn=${botIn}`);
 
   if (!ownerAdd) {
     if (isTrialConsumed(gid)) {
