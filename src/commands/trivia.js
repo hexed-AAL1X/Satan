@@ -66,7 +66,7 @@ async function generateTriviaQuestion(difficulty) {
 
   const prompt = `Genera una pregunta de trivia sobre metal de dificultad "${diff}".
 Responde ÚNICAMENTE con JSON válido sin texto extra ni markdown:
-{"question":"...","options":["A) ...","B) ...","C) ..."],"answer":0,"difficulty":"${diff}"}
+{"question":"...","options":["A) ...","B) ...","C) ..."],"answer":0,"difficulty":"${diff}","explanation":"breve explicación de la respuesta correcta"}
 donde "answer" es el índice (0=A, 1=B, 2=C) de la opción correcta.`;
   try {
     const r = await Promise.race([

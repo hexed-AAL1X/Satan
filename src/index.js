@@ -163,9 +163,9 @@ async function ensureJoinWelcome(sock, gid, authorJid) {
       return;
     }
     if (!getTrialStart(gid)) startTrial(gid);
+    markGroupPresentation(gid);
     try {
       await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_WELCOME) });
-      markGroupPresentation(gid);
     } catch (err) {
       console.error('[JOIN-WELCOME-TRIAL]', err.message);
     }
@@ -175,11 +175,11 @@ async function ensureJoinWelcome(sock, gid, authorJid) {
   approveGroup(gid);
   endTrial(gid);
   clearTrialConsumed(gid);
+  markGroupPresentation(gid);
   try {
     await new Promise((r) => setTimeout(r, 1200));
     const ok = await sendBotPresentation(sock, gid);
-    if (ok) markGroupPresentation(gid);
-    else console.error('[JOIN-WELCOME] presentación no confirmada — quedará marcado sólo tras éxito en reintento');
+    if (!ok) console.error('[JOIN-WELCOME] presentación no confirmada para', gid);
   } catch (e) {
     console.error('[JOIN-WELCOME-OWNER]', e.message);
   }
@@ -312,6 +312,11 @@ async function startBot() {
     }
 
     if (update.action !== 'add') return;
+
+    // Si el bot está siendo agregado en este evento, no enviar bienvenidas individuales
+    // (la presentación del bot ya se maneja en ensureJoinWelcome)
+    const botBeingAdded = update.participants.some((p) => participantIdLooksLikeBot(sock, p));
+    if (botBeingAdded) return;
 
     for (const participantJid of update.participants) {
       if (participantIdLooksLikeBot(sock, participantJid)) continue;
@@ -919,7 +924,7 @@ async function startBot() {
           if (points > 0) {
             console.log(`[APORTE LINK] ${senderName} +${points} pts`);
 
-            if (shouldReact(senderJid, jid) || points > 0) {
+            if (shouldReact(senderJid, jid)) {
               const delay = 1500 + Math.random() * 4000;
               const emoji = randomReaction();
               setTimeout(async () => {
