@@ -6,6 +6,7 @@ const { getLevelName, getLevelEmoji } = require('../scheduler/ranking');
 const { startTrivia, startMetalQuiz } = require('./trivia');
 const { sendWithTyping } = require('../utils/typing');
 const { getAlbumArtworkSafe, getBandImageSafe } = require('../utils/images');
+const { getSatanResponse } = require('../handlers/satan-dm');
 
 function httpGetSimple(url) {
   return new Promise((resolve) => {
@@ -71,7 +72,8 @@ Ejemplos: *!rank* *!top* *!ruleset* *!help* *!recomienda* *!trivia* *!metalquiz*
     `*7) Avisos automáticos que te llegan al privado*
 Si un CIRCLE ya *gastó el trial* y vuelven a meter al bot sin acuerdo, recibes un DM de alerta citando el *nombre del grupo*, el texto del rechazo Groq/hardcodeado y contacto wa.me.`,
     `*8) Repetir este catálogo*
-*!privado* o *!catalogoprivado* (solo tú): vuelve a mandar estos mensajes a *+51 943 605 088*.`,
+*!privado* o *!catalogoprivado* (solo tú): vuelve a mandar estos mensajes a *+51 943 605 088*.
+*!test* (solo DM): batería LIVE de casi todas las funciones — tarda bastante ☠️`,
   ];
 }
 
@@ -408,6 +410,14 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       return false;
     });
 
+  // --- Owner: batería live de todo el bot (solo DM) ---
+  if (command === '!test') {
+    if (!isOwner) return null;
+    if (jid.endsWith('@g.us')) return await satanGroqMessage('test_must_private');
+    runOwnerLiveTest(sock, senderJid, senderName || 'SEÑOR').catch((e) => console.error('[!test]', e.message));
+    return await satanGroqMessage('test_started_ack');
+  }
+
   if (command === '!rank' || command === '!rango') {
     const user = getUser(senderJid, jid);
     if (!user) return await satanGroqMessage('rank_none', { senderName });
@@ -650,6 +660,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       ``,
       `*SCHEDULER / TEST*`,
       `!onthisday — fuerza envío del "on this day"`,
+      `!test — batería LIVE de casi todas las funciones (solo PRIVADO)`,
       ``,
       `_Solo tú puedes usar estos comandos_ 👁️`,
     ].join('\n');
@@ -1184,6 +1195,185 @@ Si no la conoces exactamente responde: {"album":"","lyrics":"NO_FOUND"}` }],
     }
   } catch {
     await sendWithTyping(sock, jid, caption);
+  }
+}
+
+/** Batería de pruebas: encadena llamadas reales del bot enviando casi todo al DM del owner. */
+async function runOwnerLiveTest(sock, ownerJid, senderName) {
+  const STEP = Math.max(700, parseInt(process.env.TEST_STEP_MS || '2400', 10));
+  const zzz = (m = STEP) => new Promise((r) => setTimeout(r, m));
+  const noopMsg = { message: { extendedTextMessage: { contextInfo: {} } } };
+  const nm = senderName || 'SEÑOR';
+
+  const say = async (title, extra = '') => {
+    await sock.sendMessage(ownerJid, { text: `🧪 *${title}*\n${extra}`.trim() }).catch(() => {});
+  };
+
+  const forwardReply = async (reply) => {
+    if (!reply) return;
+    if (typeof reply === 'string')
+      await sock.sendMessage(ownerJid, { text: reply }).catch(() => {});
+    else if (reply.text)
+      await sock.sendMessage(ownerJid, { text: reply.text, mentions: reply.mentions }).catch(() => {});
+  };
+
+  async function execPrivate(cmd) {
+    await say(cmd, '');
+    const r = await handleCommand(sock, ownerJid, ownerJid, nm, cmd, null, noopMsg);
+    await forwardReply(r);
+    await zzz();
+  }
+
+  async function execGroupContext(cmd, gJid) {
+    await say(`${cmd}`, `_contexto grupo:_ \`${gJid}\``);
+    const meta = await sock.groupMetadata(gJid).catch(() => null);
+    const r = await handleCommand(sock, gJid, ownerJid, nm, cmd, meta, noopMsg);
+    await forwardReply(r);
+    await zzz();
+  }
+
+  let groupJid = (process.env.GROUP_ID || '').trim();
+  if (groupJid && !groupJid.endsWith('@g.us')) {
+    const id = groupJid.replace(/\D/g, '');
+    groupJid = id ? `${id}@g.us` : '';
+  }
+  if (!groupJid) {
+    try {
+      const all = await sock.groupFetchAllParticipating();
+      groupJid = Object.keys(all || {})[0] || '';
+    } catch (_) {}
+  }
+
+  try {
+    await say(
+      '!TEST — INFRAMUNDO QA',
+      [
+        `Pausa ~${STEP} ms entre pasos.`,
+        `Grupo ref BD: ${groupJid ? `\`${groupJid}\`` : '⚠️ ninguno'}`,
+        'No ejecuta mute/ban/kick ni menús !aprobar/!expulsar.',
+        'Recomendaciones e info banda pueden tardar ~1 min cada una por APIs.',
+      ].join('\n'),
+    );
+
+    await say('getSatanResponse (owner)');
+    try {
+      const dmLine = await getSatanResponse(ownerJid, 'una línea: prueba interna !test funcionando ACK', true);
+      await sock.sendMessage(ownerJid, { text: dmLine }).catch(() => {});
+    } catch (_) {}
+    await zzz();
+
+    await say(
+      'satanGroqMessage (muestras)',
+      [
+        `• admin_denied → ${await satanGroqMessage('admin_denied')}`,
+        `• genre_reject → ${await satanGroqMessage('genre_reject')}`,
+        `• usage → ${await satanGroqMessage('usage', { usage: '!band [nombre]', example: '!band Celtic Frost' })}`,
+      ].join('\n\n'),
+    );
+    await zzz();
+
+    for (const cmd of ['!ruleset', '!help', '!recomienda trap', '!recomienda doom metal culto europeo']) {
+      await execPrivate(cmd);
+    }
+
+    if (groupJid) {
+      for (const cmd of ['!rank', '!top', '!streak']) await execGroupContext(cmd, groupJid);
+    } else {
+      await say('rank/top/streak', '⚠️ sin jid de grupo: saltados.');
+    }
+
+    await execPrivate('!mute');
+
+    await execPrivate('!meme');
+
+    await say('getBandInfo → Mayhem', '');
+    getBandInfo(sock, ownerJid, 'Mayhem').catch(console.error);
+    await zzz(6500);
+
+    await say('getAlbumInfo …', '');
+    getAlbumInfo(sock, ownerJid, 'De Mysteriis Dom Sathanas de Mayhem').catch(console.error);
+    await zzz(6500);
+
+    await say('getLyrics …', '');
+    getLyrics(sock, ownerJid, 'Freezing Moon por Mayhem').catch(console.error);
+    await zzz(8000);
+
+    await say('sendRecommendations (1 tanda)');
+    sendRecommendations(sock, ownerJid, 'grindcore sudamericana').catch(console.error);
+    await zzz(14000);
+
+    await say('!trivia facil', 'respondé A/B/C o esperá timeout 30s 💀');
+    await startTrivia(sock, ownerJid, 'facil').catch(console.error);
+    await zzz(32000);
+
+    await say('!metalquiz', 'tres preguntas aquí — respondé A/B/C ⚔️');
+    await startMetalQuiz(sock, ownerJid).catch(console.error);
+    await zzz(5000);
+
+    const sched = require('../scheduler');
+    const {
+      sendOnThisDay,
+      sendBattle,
+      sendDailyContent,
+      sendAlbumDia,
+      sendBandaDia,
+      sendWeekWinner,
+    } = sched;
+
+    await say('scheduler.sendOnThisDay', '');
+    await sendOnThisDay(sock, ownerJid).catch((e) => say('→ error', String(e.message)));
+    await zzz();
+
+    await say('scheduler.sendDailyContent', '');
+    await sendDailyContent(sock, ownerJid).catch((e) => say('→ error', String(e.message)));
+    await zzz();
+
+    await say('scheduler.sendAlbumDia', '');
+    await sendAlbumDia(sock, ownerJid).catch((e) => say('→ error', String(e.message)));
+    await zzz();
+
+    await say('scheduler.sendBandaDia', '');
+    await sendBandaDia(sock, ownerJid).catch((e) => say('→ error', String(e.message)));
+    await zzz();
+
+    try {
+      const gd = await sched.getBuenosDias();
+      await sendWithTyping(sock, ownerJid, `☀️ *texto buenos días (\`getBuenosDias\`)*\n${gd}`);
+    } catch (_) {}
+    await zzz();
+
+    try {
+      const { sendMorningStickers } = require('../handlers/stickers');
+      await sendMorningStickers(sock, ownerJid);
+    } catch (_) {}
+    await zzz();
+
+    if (groupJid) {
+      await say('scheduler.sendWeekWinner', `\`${groupJid}\``);
+      await sendWeekWinner(sock, ownerJid, groupJid).catch(() => {});
+      await zzz();
+    }
+
+    await say(
+      '!battle / sendBattle',
+      'Poll nativa puede fallar en algunos chats; hay fallback texto. Timer 30 min ⚠️',
+    );
+    await sendBattle(sock, ownerJid).catch((e) => say('battle error', String(e.message)));
+    await zzz();
+
+    await say('sendGroupsReport', '');
+    await sendGroupsReport(sock, ownerJid).catch((e) => say('→ error', String(e.message)));
+    await zzz();
+
+    await say('comando !onthisday (mismo día que scheduler arriba)', '');
+    await execPrivate('!onthisday');
+
+    await say(
+      '!TEST FIN',
+      'omitido: menús !aprobar/!kick, mute/ban con mención real, bienvenidas automáticas, \`sendMonthlyTop\` (resetea puntos mensuales).',
+    );
+  } catch (e) {
+    await sock.sendMessage(ownerJid, { text: `☠️ [!test abort] ${e.message}` }).catch(() => {});
   }
 }
 

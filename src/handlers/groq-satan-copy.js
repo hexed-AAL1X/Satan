@@ -84,6 +84,10 @@ const FB = {
   lyrics_not_found: (f) =>
     `☠️ no encontré letra de *${f.song}* en el inframundo 💀\nusa: !letra [canción] por [artista]`,
   private_catalog_ack: () => `📜 catálogo de funciones PRIVADAS enviado a tu número SEÑOR ☠️`,
+  test_started_ack: () =>
+    `⚔️ batería *!test* lanzada\nmirá TU PRIVADO con el bot 👁️\npuede tardar varios MINUTOS ☠️`,
+  test_must_private: () =>
+    `👁️ *!test* solo funciona escribiendo al bot en PRIVADO\nno desde el grupo SEÑOR ☠️`,
 };
 
 const SCENARIO_HINTS = {
@@ -153,6 +157,10 @@ const SCENARIO_HINTS = {
     'Sin letra para canción {{song}}. Di que prueben con !letra canción por artista. Incluye esa línea de uso literal al final.',
   private_catalog_ack:
     'Confirmación al SEÑOR en el GRUPO de que el catálogo largo ya fue a su privado. Una frase devota muy corta sin guión.',
+  test_started_ack:
+    'Confirmas al AMO que la batería de prueba !test está corriendo y que mire el chat privado. Muy corto sin guión.',
+  test_must_private:
+    '!test debe usarse solo en DM con el bot. Rechazo breve reverente al SEÑOR.',
 };
 
 function interpolate(template, facts) {
