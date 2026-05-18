@@ -11,7 +11,7 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 const http = require('http');
 
-const { upsertUser, getDb, updateLevel, removeUser, isUserMuted, hasGroupPresentation, markGroupPresentation, removeGroupPresentation, isGroupApproved, approveGroup, unapproveGroup, startTrial, getTrialStart, endTrial, getAllTrials, markTrialConsumed, isTrialConsumed } = require('./db');
+const { upsertUser, getDb, updateLevel, removeUser, isUserMuted, hasGroupPresentation, markGroupPresentation, removeGroupPresentation, isGroupApproved, approveGroup, unapproveGroup, startTrial, getTrialStart, endTrial, getAllTrials, markTrialConsumed, isTrialConsumed, clearTrialConsumed } = require('./db');
 const { getLevelName, getLevelEmoji } = require('./scheduler/ranking');
 const { getWelcomeMessage, sendBotPresentation } = require('./handlers/welcome');
 const { sendTrialExpiredFarewell, sendTrialReinviteRejectedFarewell } = require('./handlers/trial-farewell');
@@ -111,6 +111,86 @@ async function rejectSecondTrialInvitation(sock, gid, adderJid) {
 
 function pickRandomMsg(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
+function sockMainPhone(sock) {
+  const raw = sock.user?.id?.split(':')[0] || '';
+  const pn = raw.split('@')[0].replace(/\D/g, '');
+  if (pn) return pn;
+  return String(BOT_NUMBER || '').replace(/\D/g, '');
+}
+
+function participantIdLooksLikeBot(sock, participantId) {
+  const pid = String(participantId || '');
+  const myPn = sockMainPhone(sock);
+  if (!myPn) return false;
+  const botJidPn = `${myPn}@s.whatsapp.net`;
+  const lid = global._botLid ? String(global._botLid) : '';
+  if (pid === botJidPn) return true;
+  if (pid.includes(myPn)) return true;
+  if (lid && pid.includes(lid)) return true;
+  return false;
+}
+
+function idLooksLikeOwner(jidStr) {
+  if (!jidStr) return false;
+  if (jidStr.includes(OWNER_NUMBER)) return true;
+  const ol = global._ownerLid ? String(global._ownerLid) : '';
+  return !!(ol && jidStr.includes(ol));
+}
+
+/** Primera bienvenida al entrar el bot: usa metadata (LID, eventos incompletos). */
+async function ensureJoinWelcome(sock, gid, authorJid) {
+  if (!gid || !String(gid).endsWith('@g.us')) return;
+
+  let meta;
+  try {
+    meta = await sock.groupMetadata(gid);
+  } catch (e) {
+    console.warn(`[JOIN-WELCOME] metadata pendiente ${gid}:`, e.message);
+    return;
+  }
+
+  const botIn = meta.participants?.some((p) => participantIdLooksLikeBot(sock, p.id));
+  if (!botIn) return;
+  if (hasGroupPresentation(gid)) return;
+
+  let ownerAdd = idLooksLikeOwner(authorJid);
+
+  console.log(`[JOIN-WELCOME] gid=${gid} author=${authorJid || '∅'} ownerAdd=${ownerAdd}`);
+
+  if (!ownerAdd) {
+    if (isTrialConsumed(gid)) {
+      rejectSecondTrialInvitation(sock, gid, authorJid || '').catch((e) => console.error('[JOIN-WELCOME-DENY]', e.message));
+      return;
+    }
+    if (!getTrialStart(gid)) startTrial(gid);
+    try {
+      await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_WELCOME) });
+      markGroupPresentation(gid);
+    } catch (err) {
+      console.error('[JOIN-WELCOME-TRIAL]', err.message);
+    }
+    return;
+  }
+
+  approveGroup(gid);
+  endTrial(gid);
+  clearTrialConsumed(gid);
+  try {
+    await new Promise((r) => setTimeout(r, 1200));
+    const ok = await sendBotPresentation(sock, gid);
+    if (ok) markGroupPresentation(gid);
+    else console.error('[JOIN-WELCOME] presentación no confirmada — quedará marcado sólo tras éxito en reintento');
+  } catch (e) {
+    console.error('[JOIN-WELCOME-OWNER]', e.message);
+  }
+}
+
+function scheduleJoinWelcomeRetries(sock, gid, authorJid) {
+  const auth = authorJid || '';
+  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 2000);
+  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 7500);
+}
+
 async function endTrialAndLeave(sock, gid) {
   console.log(`[TRIAL-END] expirando ${gid}`);
   try {
@@ -196,6 +276,77 @@ async function startBot() {
     markOnlineOnConnect: true,
   });
 
+  const processGroupParticipantEvent = async (update) => {
+    console.log(`[PARTICIPANTE] action=${update.action} group=${update.id} participants=${update.participants?.join(',')}`);
+
+    if (!update.id?.endsWith('@g.us')) return;
+
+    const knownGroups = global._knownGroups || new Set();
+    global._knownGroups = knownGroups;
+
+    if (update.action === 'remove' || update.action === 'leave') {
+      if (!update.participants?.length) return;
+      const botRemoved = update.participants.some((p) => participantIdLooksLikeBot(sock, p));
+      if (botRemoved) {
+        global._knownGroups?.delete(update.id);
+        removeGroupPresentation(update.id);
+        unapproveGroup(update.id);
+        console.log(`[BOT-REMOVED] expulsado de ${update.id} — presentación y aprobación reseteadas`);
+      }
+      for (const participantJid of update.participants) {
+        removeUser(participantJid, update.id);
+      }
+      return;
+    }
+
+    if (!update.participants?.length) {
+      if (update.action === 'add') {
+        scheduleJoinWelcomeRetries(sock, update.id, update.author || '');
+      }
+      return;
+    }
+
+    if (update.action === 'add') {
+      knownGroups.add(update.id);
+      scheduleJoinWelcomeRetries(sock, update.id, update.author || '');
+    }
+
+    if (update.action !== 'add') return;
+
+    for (const participantJid of update.participants) {
+      if (participantIdLooksLikeBot(sock, participantJid)) continue;
+      try {
+        const meta = await sock.groupMetadata(update.id);
+        const participant = meta.participants.find((p) => p.id === participantJid);
+        const name = participant?.notify || participantJid.split('@')[0];
+
+        const adderJid = update.author;
+        let adderName = null;
+        if (adderJid && adderJid !== participantJid) {
+          const adderParticipant = meta.participants.find((p) => p.id === adderJid);
+          adderName = adderParticipant?.notify || adderJid.split('@')[0];
+        }
+
+        upsertUser(participantJid, name, update.id);
+
+        const welcomeText = await getWelcomeMessage(name, adderName);
+        const mentions =
+          adderJid && adderJid !== participantJid ? [participantJid, adderJid] : [participantJid];
+        await sendWithTyping(sock, update.id, {
+          text: welcomeText,
+          mentions,
+        });
+
+        if (getStickerFiles().length > 0) {
+          await new Promise((r) => setTimeout(r, 800));
+          await sendWelcomeStickers(sock, update.id);
+        }
+      } catch (err) {
+        console.error('[BIENVENIDA ERROR]', err.message);
+      }
+    }
+  };
+
   // --- QR ---
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -266,10 +417,10 @@ async function startBot() {
             console.log(`[STARTUP-TRIAL] iniciando prueba en grupo no aprobado: ${gid}`);
             startTrial(gid);
             if (!hasGroupPresentation(gid)) {
-              markGroupPresentation(gid);
-              await new Promise(r => setTimeout(r, 3000));
+              await new Promise(r => setTimeout(r, 2000));
               try {
                 await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_WELCOME) });
+                markGroupPresentation(gid);
               } catch (err) { console.error('[STARTUP-TRIAL]', err.message); }
             }
           } else if (Date.now() - trialStart >= TRIAL_MS) {
@@ -282,6 +433,17 @@ async function startBot() {
           }
         }
         startTrialWatcher();
+
+        const pend = global._pendingParticipantUpdates || [];
+        global._pendingParticipantUpdates = [];
+        for (const u of pend) {
+          try {
+            await processGroupParticipantEvent(u);
+          } catch (e) {
+            console.error('[PEND-PART]', e.message);
+          }
+          await new Promise((r) => setTimeout(r, 600));
+        }
       } catch (_) {
         global._knownGroups = global._knownGroups || new Set();
       }
@@ -546,122 +708,15 @@ async function startBot() {
     }
   });
 
-  // --- Nuevos integrantes ---
   sock.ev.on('group-participants.update', async (update) => {
-    console.log(`[PARTICIPANTE] action=${update.action} group=${update.id} participants=${update.participants?.join(',')}`);
-    if (!update.participants?.length) return;
-    if (!botReady && update.action === 'add') return; // ignorar add antes de estar listo
-
-    const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : '';
-    const botPhoneNum = BOT_NUMBER || (sock.user?.id ? sock.user.id.split(':')[0].split('@')[0] : '');
-    const botLidNum = global._botLid || '';
-    // Método 1: comparar por JID/LID
-    const botInParticipants = update.participants.some(p =>
-      p === botJid ||
-      (botPhoneNum && p.includes(botPhoneNum)) ||
-      (botLidNum && p.includes(botLidNum))
-    );
-    // Método 2: el grupo es nuevo (no estaba en los grupos conocidos al arrancar)
-    const knownGroups = global._knownGroups || new Set();
-    const isNewGroup = update.action === 'add' && !knownGroups.has(update.id);
-    const botWasAdded = update.action === 'add' && (botInParticipants || isNewGroup);
-    console.log(`[PART-CHECK] botJid=${botJid} botPhone=${botPhoneNum} botLid=${botLidNum} participants=${update.participants?.join(',')} botInP=${botInParticipants} isNewGroup=${isNewGroup}`);
-
-    if (botWasAdded) {
-      knownGroups.add(update.id);
-      const adderJid = update.author || '';
-      const ownerLidResolved = global._ownerLid || '';
-      const adderIsOwner = adderJid.includes(OWNER_NUMBER) ||
-        (ownerLidResolved && adderJid.includes(ownerLidResolved));
-      console.log(`[BOT-ADD] grupo=${update.id} adder=${adderJid} ownerLid=${ownerLidResolved} isOwner=${adderIsOwner}`);
-
-      // Si NO es el owner → trial una sola vez por grupo si no marcó demo como gastada
-      if (!adderIsOwner) {
-        if (isTrialConsumed(update.id)) {
-          rejectSecondTrialInvitation(sock, update.id, adderJid).catch(e => console.error('[TRIAL-DENY]', e.message));
-          return;
-        }
-        console.log(`[TRIAL-START] grupo ${update.id} entra a período de prueba de ${TRIAL_HOURS}h`);
-        if (!getTrialStart(update.id)) startTrial(update.id);
-        if (!hasGroupPresentation(update.id)) {
-          markGroupPresentation(update.id);
-          await new Promise(r => setTimeout(r, 3000));
-          try {
-            await sock.sendMessage(update.id, { text: pickRandomMsg(TRIAL_WELCOME) });
-          } catch (err) { console.error('[TRIAL-WELCOME]', err.message); }
-        }
-        return;
-      }
-
-      // Owner confirmado — aprobar y presentar
-      approveGroup(update.id);
-      endTrial(update.id);
-      if (hasGroupPresentation(update.id)) {
-        console.log(`[PRESENTACION] grupo ${update.id} ya tiene presentación — skip`);
-        return;
-      }
-      console.log(`[PRESENTACION] owner añadió al bot al grupo ${update.id}`);
-      markGroupPresentation(update.id);
-      await new Promise(r => setTimeout(r, 3000));
-      sendBotPresentation(sock, update.id)
-        .catch(e => console.error('[PRESENTACION]', e.message));
+    if (!botReady) {
+      (global._pendingParticipantUpdates ||= []).push(update);
       return;
     }
-
-    // Eliminar de DB cuando alguien sale o es expulsado
-    if (update.action === 'remove' || update.action === 'leave') {
-      const botRemoved = update.participants.some(p =>
-        (botPhoneNum && p.includes(botPhoneNum)) ||
-        (botLidNum && p.includes(botLidNum)) ||
-        p === botJid
-      );
-      if (botRemoved) {
-        global._knownGroups?.delete(update.id);
-        removeGroupPresentation(update.id);
-        unapproveGroup(update.id);
-        console.log(`[BOT-REMOVED] expulsado de ${update.id} — presentación y aprobación reseteadas`);
-      }
-      for (const participantJid of update.participants) {
-        removeUser(participantJid, update.id);
-      }
-      return;
-    }
-
-    if (update.action !== 'add') return;
-
-    for (const participantJid of update.participants) {
-      try {
-        const meta = await sock.groupMetadata(update.id);
-        const participant = meta.participants.find(p => p.id === participantJid);
-        const name = participant?.notify || participantJid.split('@')[0];
-
-        // Quién agregó a esta persona (puede ser undefined si entró por link)
-        const adderJid = update.author;
-        let adderName = null;
-        if (adderJid && adderJid !== participantJid) {
-          const adderParticipant = meta.participants.find(p => p.id === adderJid);
-          adderName = adderParticipant?.notify || adderJid.split('@')[0];
-        }
-
-        upsertUser(participantJid, name, update.id);
-
-        const welcomeText = await getWelcomeMessage(name, adderName);
-        const mentions = adderJid && adderJid !== participantJid
-          ? [participantJid, adderJid]
-          : [participantJid];
-        await sendWithTyping(sock, update.id, {
-          text: welcomeText,
-          mentions,
-        });
-
-        // Stickers aleatorios después del saludo (2 o 4 al azar)
-        if (getStickerFiles().length > 0) {
-          await new Promise(r => setTimeout(r, 800));
-          await sendWelcomeStickers(sock, update.id);
-        }
-      } catch (err) {
-        console.error('[BIENVENIDA ERROR]', err.message);
-      }
+    try {
+      await processGroupParticipantEvent(update);
+    } catch (e) {
+      console.error('[GROUP-PART]', e.message);
     }
   });
 

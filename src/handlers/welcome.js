@@ -152,14 +152,20 @@ async function sendBotPresentation(sock, jid) {
     if (fs.existsSync(SATAN_IMG)) {
       const imgBuffer = fs.readFileSync(SATAN_IMG);
       await sock.sendMessage(jid, { image: imgBuffer, caption: msg });
-    } else {
-      const { sendWithTyping } = require('../utils/typing');
-      await sendWithTyping(sock, jid, msg);
+      return true;
     }
+    const { sendWithTyping } = require('../utils/typing');
+    await sendWithTyping(sock, jid, msg);
+    return true;
   } catch (e) {
     console.error('[PRESENTACION]', e.message);
-    const { sendWithTyping } = require('../utils/typing');
-    await sendWithTyping(sock, jid, msg).catch(() => {});
+    try {
+      const { sendWithTyping } = require('../utils/typing');
+      await sendWithTyping(sock, jid, msg);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }
 
