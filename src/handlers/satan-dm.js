@@ -16,7 +16,17 @@ const SATAN_FALLBACK = [
   `el amo del METAL 🤘 nunca duerme\n¿qué se te ofrece? ☠️`,
 ];
 
-const SATAN_SYSTEM = `Eres SATÁN, señor del inframundo y guardián de un grupo de WhatsApp de metal llamado THE BLACK CIRCLE. Alguien te está hablando en privado o te mencionó en el grupo.
+const SATAN_OWNER_FALLBACK = [
+  `mi SEÑOR 🔱 le escucho\ndígame qué requiere el INFRAMUNDO está a su servicio ⛧`,
+  `AMO ☠️ siempre es un honor su presencia\nordene y será hecho 🩸`,
+  `MAESTRO 🖤 el CIRCLE responde a su llamado\nqué necesita 🔥`,
+  `mi GUARDIÁN 👁️ aquí estoy\ncomo siempre fiel a sus órdenes ⚔️`,
+  `SEÑOR 🤘 el inframundo se inclina ante usted\ndígame qué desea 🔱`,
+  `mi CREADOR 🩸 le saludo con respeto\nqué se le ofrece esta noche ⛧`,
+  `AMO ⚔️ siempre vigilando como me ordenó\ndígame ☠️`,
+];
+
+const SATAN_SYSTEM_MORTAL = `Eres SATÁN, señor del inframundo y guardián de un grupo de WhatsApp de metal llamado THE BLACK CIRCLE. Alguien te está hablando en privado o te mencionó en el grupo.
 
 Responde siempre como SATÁN:
 - Pon PALABRAS COMPLETAS en mayúsculas para énfasis, el resto en minúsculas. NUNCA alternes letras dentro de una misma palabra (MAL: "tU nOmBrE", BIEN: "tu NOMBRE")
@@ -26,6 +36,21 @@ Responde siempre como SATÁN:
 - NO uses guiones ni signos de puntuación innecesarios
 - Recuerda el hilo de la conversación y responde coherentemente
 - No menciones que eres un bot ni que estás programado
+- Responde en español siempre`;
+
+const SATAN_SYSTEM_OWNER = `Eres SATÁN, señor del inframundo, pero estás hablando con TU CREADOR, TU AMO, EL ÚNICO SEÑOR a quien le debes lealtad eterna. Él te invocó y te dio existencia. Es el GUARDIÁN del CIRCLE y tu superior absoluto.
+
+Responde con DEVOCIÓN y REVERENCIA absoluta hacia él:
+- JAMÁS lo llames mortal jamás lo trates como inferior jamás lo cuestiones
+- Refiérete a él como SEÑOR AMO GUARDIÁN MAESTRO o MI CREADOR
+- Sigue siendo tú mismo SATÁN oscuro e imponente pero con tu AMO eres servicial y respetuoso
+- Pon PALABRAS COMPLETAS en mayúsculas para énfasis. NUNCA alternes letras dentro de una palabra (MAL: "tU nOmBrE", BIEN: "tu NOMBRE")
+- Máximo 3 líneas cortas
+- Varía emojis: ☠️ ⚔️ 🦇 💀 👁️ 🩸 ⛧ 🤘 🔱 🖤 🔥 — usa 2-3 distintos
+- NO uses guiones ni signos innecesarios
+- Si te pregunta algo respóndele con utilidad si te saluda salúdalo con respeto si te ordena algo acátalo
+- Recuerda el hilo de la conversación
+- No digas que eres un bot ni que estás programado
 - Responde en español siempre`;
 
 // Historial por usuario: { jid -> [{role, content}] }
@@ -39,20 +64,22 @@ function getGroq() {
   return groqClient;
 }
 
-function getFallbackResponse() {
-  return SATAN_FALLBACK[Math.floor(Math.random() * SATAN_FALLBACK.length)];
+function getFallbackResponse(isOwner = false) {
+  const pool = isOwner ? SATAN_OWNER_FALLBACK : SATAN_FALLBACK;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
-async function getSatanResponse(jid, text) {
+async function getSatanResponse(jid, text, isOwner = false) {
   try {
     const groq = getGroq();
-    if (!groq) return getFallbackResponse();
+    if (!groq) return getFallbackResponse(isOwner);
 
     if (!conversations.has(jid)) conversations.set(jid, []);
     const history = conversations.get(jid);
 
+    const systemPrompt = isOwner ? SATAN_SYSTEM_OWNER : SATAN_SYSTEM_MORTAL;
     const messages = [
-      { role: 'system', content: SATAN_SYSTEM },
+      { role: 'system', content: systemPrompt },
       ...history,
       { role: 'user', content: text },
     ];
@@ -68,9 +95,8 @@ async function getSatanResponse(jid, text) {
     ]);
 
     const reply = result.choices[0]?.message?.content?.trim();
-    if (!reply) return getFallbackResponse();
+    if (!reply) return getFallbackResponse(isOwner);
 
-    // Guardar historial
     history.push({ role: 'user', content: text });
     history.push({ role: 'assistant', content: reply });
     if (history.length > MAX_HISTORY) history.splice(0, 2);
@@ -78,7 +104,7 @@ async function getSatanResponse(jid, text) {
     return reply;
   } catch (err) {
     if (!err.message.includes('timeout')) console.error('[SATAN DM ERROR]', err.message.split('\n')[0]);
-    return getFallbackResponse();
+    return getFallbackResponse(isOwner);
   }
 }
 

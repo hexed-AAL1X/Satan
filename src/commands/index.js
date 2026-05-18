@@ -304,7 +304,11 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   const [cmd, ...args] = text.trim().split(/\s+/);
   const command = cmd.toLowerCase();
   const OWNER_NUMBER = '51943605088';
-  const isOwner = senderJid && senderJid.includes(OWNER_NUMBER);
+  const ownerLidResolved = global._ownerLid || '';
+  const isOwner = senderJid && (
+    senderJid.includes(OWNER_NUMBER) ||
+    (ownerLidResolved && senderJid.includes(ownerLidResolved))
+  );
 
   // Extraer mentionedJid con soporte para rawMsg (ephemeral, etc.)
   const rawMsgInner = msg?.message?.ephemeralMessage?.message ||

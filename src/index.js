@@ -678,7 +678,7 @@ async function startBot() {
 
       // Responder en privado como SATÁN (cualquier texto que no sea comando)
       if (!isGroup && text && !text.startsWith('!')) {
-        const reply = await getSatanResponse(senderJid, text);
+        const reply = await getSatanResponse(senderJid, text, isOwner(senderJid));
         await sendWithTyping(sock, jid, reply);
         continue;
       }
@@ -925,7 +925,7 @@ async function startBot() {
               const angerDelay = 3000 + Math.random() * 4000;
               setTimeout(async () => {
                 try {
-                  const reply = await getSatanResponse(senderJid, angryPrompt);
+                  const reply = await getSatanResponse(senderJid, angryPrompt, isOwner(senderJid));
                   await sendWithTyping(sock, jid, { text: reply, mentions: [senderJid] }, { quoted: msg });
                 } catch (_) {}
               }, angerDelay);
@@ -979,7 +979,7 @@ async function startBot() {
             continue;
           }
 
-          const reply = await getSatanResponse(senderJid, cleanText || 'me llamaste');
+          const reply = await getSatanResponse(senderJid, cleanText || 'me llamaste', isOwner(senderJid));
           await sendWithTyping(sock, jid, { text: reply, mentions: [senderJid] }, { quoted: msg });
         }
 
