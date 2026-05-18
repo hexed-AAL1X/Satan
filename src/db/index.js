@@ -1,7 +1,10 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '../../data/metal_bot.db');
+// La DB se guarda en el mismo directorio que la sesión de WhatsApp (volumen persistente)
+// Esto garantiza que puntos, rangos y strikes sobrevivan reinicios y deploys
+const AUTH_DIR = path.join(__dirname, '../../auth_info_baileys');
+const DB_PATH = path.join(AUTH_DIR, 'satan_bot.db');
 
 let db;
 

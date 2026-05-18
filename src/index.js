@@ -795,9 +795,29 @@ async function startBot() {
           }
         }
 
-        // 6. Chat directo o @mención al bot — responde como SATÁN
+        // 6. Chat directo o @mención al bot — responde como SATÁN con guía de comandos si aplica
         if (isMentioned && isGroup) {
-          const cleanText = text.replace(/@\S+/g, '').trim();
+          const cleanText = text.replace(/@\S+/g, '').trim().toLowerCase();
+
+          // Si piden link/info de una banda específica → redirige a !band
+          const bandLinkMatch = cleanText.match(/link[s]? (?:de |del )?(.+)|(?:busca|encuentra|dónde|donde) (?:a |la banda |)(.+)/i);
+          if (bandLinkMatch) {
+            const bandName = (bandLinkMatch[1] || bandLinkMatch[2] || '').trim();
+            if (bandName) {
+              await sendWithTyping(sock, jid, { text: `usa *!band ${bandName}* para ver info y links ⚔️`, mentions: [senderJid] }, { quoted: msg });
+              const { getBandInfo } = require('./commands');
+              getBandInfo(sock, jid, bandName).catch(() => {});
+              continue;
+            }
+          }
+
+          // Si preguntan por comandos/funciones → !help
+          if (/comando[s]?|función|funciones|cómo|como usar|qué hace|que hace|ayuda|help/i.test(cleanText)) {
+            const helpText = `👁️ *usa !help* para ver todos mis comandos ⚔️\no !band, !album, !recomienda, !trivia, !rank, !top, !streak, !letra 🖤`;
+            await sendWithTyping(sock, jid, { text: helpText, mentions: [senderJid] }, { quoted: msg });
+            continue;
+          }
+
           const reply = await getSatanResponse(senderJid, cleanText || 'me llamaste');
           await sendWithTyping(sock, jid, { text: reply, mentions: [senderJid] }, { quoted: msg });
         }

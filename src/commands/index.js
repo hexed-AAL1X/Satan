@@ -46,7 +46,11 @@ async function getUndergroundRecommendations(genre) {
     'System of a Down','Rammstein','Nightwish','Arch Enemy','In Flames','Opeth','Meshuggah',
     'Tool','Gojira','Mastodon','Ghost','Sabaton','Amon Amarth','Children of Bodom',
   ].join(', ');
-  const prompt = `Eres un experto en metal extremo con acceso a bandas muy oscuras y desconocidas. Recomienda exactamente 3 bandas de ${genre || 'metal'} que sean MUY poco conocidas, de culto, con menos de 20,000 oyentes mensuales en total — de Latinoamérica, Noruega, Suecia, Finlandia, Polonia, Brasil, Grecia, México, Colombia, Chile u otros países. Prioriza bandas que solo los fanáticos más dedicados conocen. NUNCA recomiendes estas bandas: ${banned}. ${alreadySeen}
+  const isDescriptive = genre && !/^[a-záéíóúüñ\s]+$/i.test(genre) || (genre && genre.split(' ').length > 2);
+  const searchContext = isDescriptive
+    ? `que tengan estas características: ${genre}`
+    : `del género ${genre || 'metal extremo'}`;
+  const prompt = `Eres un experto en metal extremo con acceso a bandas muy oscuras y desconocidas. Recomienda exactamente 3 bandas de metal ${searchContext} que sean MUY poco conocidas, de culto, con menos de 20,000 oyentes mensuales en total — de Latinoamérica, Noruega, Suecia, Finlandia, Polonia, Brasil, Grecia, México, Colombia, Chile u otros países. Prioriza bandas que solo los fanáticos más dedicados conocen. NUNCA recomiendes estas bandas: ${banned}. ${alreadySeen}
 
 IMPORTANTE: en el campo "why", escribe en español pero NUNCA traduzcas los géneros musicales — siempre en inglés (black metal, death metal, doom metal, thrash metal, etc). No uses la palabra "underground".
 
@@ -299,6 +303,19 @@ async function sendMeme(sock, jid) {
 async function handleCommand(sock, jid, senderJid, senderName, text, groupMetadata, msg) {
   const [cmd, ...args] = text.trim().split(/\s+/);
   const command = cmd.toLowerCase();
+  const OWNER_NUMBER = '51943605088';
+  const isOwner = senderJid && senderJid.includes(OWNER_NUMBER);
+
+  // Extraer mentionedJid con soporte para rawMsg (ephemeral, etc.)
+  const rawMsgInner = msg?.message?.ephemeralMessage?.message ||
+    msg?.message?.viewOnceMessage?.message ||
+    msg?.message;
+  const getMentionedJid = () =>
+    rawMsgInner?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
+    msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+
+  const isAdmin = isOwner || (groupMetadata?.participants || [])
+    .some(p => p.id === senderJid && (p.admin === 'admin' || p.admin === 'superadmin'));
 
   if (command === '!rank' || command === '!rango') {
     const user = getUser(senderJid, jid);
@@ -325,10 +342,25 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     return `📜 REGLAS DEL CIRCLE:\n\n⚔️ 1. Respeta a tus hermanos del metal\n🦇 2. No links de otros grupos de WhatsApp 3 strikes y BAN\n☠️ 3. Los APORTADORES son el alma del grupo\n🤘 4. Todo subgénero de metal es bienvenido\n🖤 5. Sin spam sin publicidad\n🔱 6. El bot modera automáticamente no te hagas el vivo`;
   }
 
+  if (command === '!help' || command === '!ayuda' || command === '!comandos') {
+    return `👁️ *COMANDOS DEL CIRCLE* ⚔️\n\n` +
+      `🎖️ *!rank* — tu rango y puntos actuales\n` +
+      `🏆 *!top* — ranking semanal de aportadores\n` +
+      `🔥 *!streak* — tu racha de días aportando\n` +
+      `🎵 *!band [nombre]* — info + imagen de una banda\n` +
+      `💿 *!album [nombre]* — portada + info de un álbum\n` +
+      `🩸 *!recomienda [género o descripción]* — 3 bandas de culto\n` +
+      `🎤 *!letra [canción] por [artista]* — letra + portada\n` +
+      `☠️ *!trivia [facil|medio|dificil]* — pregunta de 30s\n` +
+      `📜 *!ruleset* — reglas del CIRCLE\n` +
+      `⚡ *!onthisday* — qué pasó hoy en la historia del metal\n\n` +
+      `_Admins:_ *!mute @persona [horas]* · *!unmute @persona* · *!ban @persona*\n\n` +
+      `🖤 el CIRCLE te observa ⛧`;
+  }
+
   if (command === '!recomienda') {
-    const genre = args.join(' ') || 'metal';
-    // Envía directamente con imágenes, retorna null para que index.js no envíe nada
-    sendRecommendations(sock, jid, genre).catch(console.error);
+    const query = args.join(' ') || 'metal extremo';
+    sendRecommendations(sock, jid, query).catch(console.error);
     return null;
   }
 
@@ -361,12 +393,9 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   }
 
   // --- Comandos de admin ---
-  const isAdmin = (groupMetadata?.participants || [])
-    .some(p => p.id === senderJid && (p.admin === 'admin' || p.admin === 'superadmin'));
-
   if (command === '!mute') {
     if (!isAdmin) return `☠️ solo los ADMINS pueden usar eso 🔱`;
-    const mentionedJid = msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+    const mentionedJid = getMentionedJid();
     if (!mentionedJid) return `⚔️ Uso: !mute @persona [horas]\nEjemplo: !mute @Juan 24`;
     const hours = parseInt(args.find(a => /^\d+$/.test(a))) || 24;
     muteUser(mentionedJid, hours, jid);
@@ -379,7 +408,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
 
   if (command === '!ban') {
     if (!isAdmin) return `☠️ solo los ADMINS pueden usar eso 🔱`;
-    const mentionedJid = msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+    const mentionedJid = getMentionedJid();
     if (!mentionedJid) return `⚔️ Uso: !ban @persona`;
     const targetName = mentionedJid.split('@')[0];
     try {
@@ -396,9 +425,9 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
 
   if (command === '!unmute') {
     if (!isAdmin) return `☠️ solo los ADMINS pueden usar eso 🔱`;
-    const mentionedJid = msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+    const mentionedJid = getMentionedJid();
     if (!mentionedJid) return `⚔️ Uso: !unmute @persona`;
-    muteUser(mentionedJid, 0, jid); // 0 horas = desmutear inmediatamente
+    muteUser(mentionedJid, 0, jid);
     const targetName = mentionedJid.split('@')[0];
     return {
       text: `🖤 @${targetName} ya puede hablar de nuevo en el CIRCLE 🤘`,
