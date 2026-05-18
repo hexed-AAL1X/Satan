@@ -135,9 +135,9 @@ Hay 15 rangos. Subes automáticamente al alcanzar los puntos.
 | 10 | Archpriest of Chaos | ⛧ | 925 |
 | 11 | Blood Sovereign | 🔱 | 1150 |
 | 12 | Fallen Angel | 👁️ | 1400 |
-| 13 | Herald of the Abyss | 🩸☠️ | 1700 |
-| 14 | Dark Lord | ⛧💀 | 2050 |
-| 15 | Lord of the Abyss | 🩸⛧🔱 | 2500 |
+| 13 | Herald of the Abyss | 🩸 ☠️ | 1700 |
+| 14 | Dark Lord | 🖤 💀 | 2050 |
+| 15 | Lord of the Abyss | 🔱 🩸 | 2500 |
 
 Cuando alguien sube de rango, el bot anuncia el ascenso.
 

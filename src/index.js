@@ -776,8 +776,16 @@ async function startBot() {
 
           // Si responde a una recomendación / banda / álbum del bot pidiendo link o info → redirige a !album o !band
           if (isReplyToBot && !isMentioned) {
-            const lowText = text.toLowerCase();
-            const wantsLink = /link|enlace|pásame|pasame|escuchar|donde lo|d[oó]nde|cómo lo|como lo|info|m[aá]s info|cu[eé]ntame|cuentame|de ese|de este|mu[eé]strame|muestrame/.test(lowText);
+            const lowText = text.toLowerCase().trim();
+            const wantsLink = (
+              // Pide link o info explícito
+              /link|enlace|p[aá]same|escuchar|d[oó]nde|c[oó]mo lo|info|m[aá]s info|cu[eé]ntame|mu[eé]strame|env[ií]a|m[aá]ndame|busca|encuentra|investiga/.test(lowText) ||
+              // Pide deíctico — "dame este", "quiero esta", "ese", "este sí"
+              /\b(?:dame|quiero|ponme|tr[aá]eme|mu[eé]strame|m[aá]ndame|p[aá]same|p[aá]salo)\b/.test(lowText) ||
+              /\b(?:este|esta|eso|ese|esa|estos|esas|el siguiente|el de arriba|el primero|el segundo|el tercero|del primero|del segundo|del tercero)\b/.test(lowText) ||
+              // Variaciones muy cortas
+              /^(?:dale|este|esta|eso|ese|esa|si|sí|yes|🤘|🔥|☠️|m[aá]s|otro|otra)$/i.test(lowText)
+            );
             if (wantsLink) {
               const quotedMsg = ctxQuoted.quotedMessage || {};
               const quotedCaption = quotedMsg.imageMessage?.caption ||

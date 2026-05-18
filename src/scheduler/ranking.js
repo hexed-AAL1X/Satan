@@ -15,9 +15,9 @@ const LEVELS = [
   { name: 'Archpriest of Chaos', emoji: '⛧',     pts: 925   }, // 10
   { name: 'Blood Sovereign',     emoji: '🔱',     pts: 1150  }, // 11
   { name: 'Fallen Angel',        emoji: '👁️',    pts: 1400  }, // 12
-  { name: 'Herald of the Abyss', emoji: '🩸☠️',  pts: 1700  }, // 13
-  { name: 'Dark Lord',           emoji: '⛧💀',   pts: 2050  }, // 14
-  { name: 'Lord of the Abyss',   emoji: '🩸⛧🔱', pts: 2500  }, // 15
+  { name: 'Herald of the Abyss', emoji: '🩸 ☠️', pts: 1700  }, // 13
+  { name: 'Dark Lord',           emoji: '🖤 💀', pts: 2050  }, // 14
+  { name: 'Lord of the Abyss',   emoji: '🔱 🩸', pts: 2500  }, // 15
 ];
 
 function getLevelName(level) {
