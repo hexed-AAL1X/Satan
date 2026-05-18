@@ -290,7 +290,54 @@ module.exports = {
   hasGroupPresentation,
   markGroupPresentation,
   removeGroupPresentation,
+  isGroupApproved,
+  approveGroup,
+  unapproveGroup,
+  startTrial,
+  getTrialStart,
+  endTrial,
+  getAllTrials,
 };
+
+function isGroupApproved(groupId) {
+  const db = getDb();
+  const row = db.prepare(`SELECT value FROM bot_state WHERE key = ?`).get(`approved_${groupId}`);
+  return !!row;
+}
+
+function approveGroup(groupId) {
+  const db = getDb();
+  db.prepare(`INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)`).run(`approved_${groupId}`, '1');
+}
+
+function unapproveGroup(groupId) {
+  const db = getDb();
+  db.prepare(`DELETE FROM bot_state WHERE key = ?`).run(`approved_${groupId}`);
+}
+
+// --- Sistema de período de prueba ---
+function startTrial(groupId) {
+  const db = getDb();
+  db.prepare(`INSERT OR REPLACE INTO bot_state (key, value) VALUES (?, ?)`)
+    .run(`trial_${groupId}`, String(Date.now()));
+}
+
+function getTrialStart(groupId) {
+  const db = getDb();
+  const row = db.prepare(`SELECT value FROM bot_state WHERE key = ?`).get(`trial_${groupId}`);
+  return row ? parseInt(row.value) : null;
+}
+
+function endTrial(groupId) {
+  const db = getDb();
+  db.prepare(`DELETE FROM bot_state WHERE key = ?`).run(`trial_${groupId}`);
+}
+
+function getAllTrials() {
+  const db = getDb();
+  return db.prepare(`SELECT key, value FROM bot_state WHERE key LIKE 'trial_%'`).all()
+    .map(r => ({ groupId: r.key.replace('trial_', ''), startedAt: parseInt(r.value) }));
+}
 
 function hasGroupPresentation(groupId) {
   const db = getDb();

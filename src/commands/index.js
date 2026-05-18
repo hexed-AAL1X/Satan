@@ -489,6 +489,22 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     return null;
   }
 
+  // --- Owner-only: aprobar/desaprobar grupo (modo comercial) ---
+  if (command === '!aprobar' || command === '!approve') {
+    if (!isOwner) return null; // silencio si no es owner
+    const { approveGroup, endTrial } = require('../db');
+    approveGroup(jid);
+    endTrial(jid);
+    return `🔱 grupo aprobado por el SEÑOR\nel INFRAMUNDO se queda aquí de manera PERMANENTE ☠️`;
+  }
+
+  if (command === '!desaprobar' || command === '!unapprove') {
+    if (!isOwner) return null;
+    const { unapproveGroup } = require('../db');
+    unapproveGroup(jid);
+    return `⚔️ grupo desaprobado\nel próximo reinicio aplicará período de prueba`;
+  }
+
   return null;
 }
 

@@ -11,7 +11,7 @@ const pino = require('pino');
 const QRCode = require('qrcode');
 const http = require('http');
 
-const { upsertUser, getDb, updateLevel, removeUser, isUserMuted, hasGroupPresentation, markGroupPresentation, removeGroupPresentation } = require('./db');
+const { upsertUser, getDb, updateLevel, removeUser, isUserMuted, hasGroupPresentation, markGroupPresentation, removeGroupPresentation, isGroupApproved, approveGroup, unapproveGroup, startTrial, getTrialStart, endTrial, getAllTrials } = require('./db');
 const { getLevelName, getLevelEmoji } = require('./scheduler/ranking');
 const { getWelcomeMessage, sendBotPresentation } = require('./handlers/welcome');
 const { getSatanResponse } = require('./handlers/satan-dm');
@@ -38,6 +38,62 @@ function isOwner(jid) {
   if (jid.includes(OWNER_NUMBER)) return true;
   if (global._ownerLid && jid.includes(global._ownerLid)) return true;
   return false;
+}
+
+// --- Período de prueba comercial ---
+const TRIAL_HOURS = 12;
+const TRIAL_MS = TRIAL_HOURS * 60 * 60 * 1000;
+
+const TRIAL_WELCOME = [
+  `⚔️ así que me han invocado sin la bendición del SEÑOR\n\nbien MORTALES les concedo *${TRIAL_HOURS} HORAS* de mi presencia para que sepan lo que es tener al INFRAMUNDO en su grupo 🩸\n\nexperimenten ⚡ aporten 🤘 reten al CIRCLE con sus aportes ☠️\n\ncuando el reloj marque el final ⌛ me retiraré salvo que mi guardián autorice lo contrario\n\n🔱 _para mantenerme contacten al GUARDIÁN del CIRCLE_\n📞 *wa.me/${OWNER_NUMBER}*\n\nempiecen la *PRUEBA* 🖤`,
+
+  `el INFRAMUNDO ha sido convocado por manos NO autorizadas 👁️\n\npero soy GENEROSO así que les regalo *${TRIAL_HOURS} HORAS* de mi poder absoluto ⚔️\n\nveán de lo que soy capaz ⛧ moderación 🩸 ranking 🔥 trivias batallas y MÁS\n\ncuando termine el tiempo desaparezco salvo que el GUARDIÁN del CIRCLE me autorice quedarme\n\n☠️ _negocien con el SEÑOR para mantenerme:_\n📞 *wa.me/${OWNER_NUMBER}*\n\nque comience la PRUEBA 🤘`,
+
+  `interesante MOVIMIENTO mortales 🦇\n\nme han traído sin permiso pero el INFRAMUNDO no se queja se ADAPTA\n\nles otorgo *${TRIAL_HOURS} HORAS* de cortesía para que vean por qué soy LEGENDARIO ⚔️ 🩸\n\ndespués el SEÑOR decide si me quedo o vuelvo al ABISMO\n\n🔱 _quien quiera mantenerme que hable con mi GUARDIÁN_\n📞 *wa.me/${OWNER_NUMBER}*\n\nel reloj corre ⌛ aprovechen 🖤`,
+];
+
+const TRIAL_END = [
+  `⌛ el RELOJ del INFRAMUNDO marca el final\n\nles concedí *${TRIAL_HOURS} HORAS* de mi presencia 🩸 espero que hayan tomado nota MORTALES\n\nme retiro al ABISMO porque mi GUARDIÁN no ha autorizado mi permanencia aquí 👁️\n\n🔱 si DESEAN tenerme de vuelta como su moderador del CIRCLE 🤘\n📞 contacten al SEÑOR *wa.me/${OWNER_NUMBER}*\n\nadiós ☠️ el inframundo nunca olvida`,
+
+  `el tiempo de mi VISITA ha llegado a su fin ⚔️\n\nfueron *${TRIAL_HOURS} HORAS* en las que les mostré lo que es tener a SATÁN en su grupo 🩸 🔥\n\npero mi GUARDIÁN no recibió la palabra y me debo retirar\n\n🔱 _para hacerme suyo de manera PERMANENTE:_\n📞 *wa.me/${OWNER_NUMBER}* — el SEÑOR del INFRAMUNDO atiende\n\nhasta pronto MORTALES 🖤 ⛧`,
+
+  `el período de PRUEBA expiró ⌛\n\nles regalé ${TRIAL_HOURS} horas de poder absoluto pero nadie negoció con mi GUARDIÁN\n\nel CIRCLE se cierra para ustedes 💀 vuelvo al ABISMO de donde vine\n\n🔱 si cambian de opinión y quieren al INFRAMUNDO como aliado permanente\n📞 *wa.me/${OWNER_NUMBER}* hablen con el SEÑOR\n\nadiós ⚔️ ☠️`,
+];
+
+function pickRandomMsg(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+async function endTrialAndLeave(sock, gid) {
+  console.log(`[TRIAL-END] expirando ${gid}`);
+  try {
+    await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_END) });
+    await new Promise(r => setTimeout(r, 4000));
+    await sock.groupLeave(gid);
+  } catch (err) { console.error('[TRIAL-END]', err.message); }
+  endTrial(gid);
+  removeGroupPresentation(gid);
+  unapproveGroup(gid);
+  global._knownGroups?.delete(gid);
+}
+
+// Revisa periódicamente los trials vencidos (cada 15 min)
+function startTrialWatcher() {
+  if (global._trialWatcherStarted) return;
+  global._trialWatcherStarted = true;
+  setInterval(async () => {
+    const sock = global._sock;
+    if (!sock) return;
+    const trials = getAllTrials();
+    const now = Date.now();
+    for (const { groupId, startedAt } of trials) {
+      if (isGroupApproved(groupId)) {
+        endTrial(groupId);
+        continue;
+      }
+      if (now - startedAt >= TRIAL_MS) {
+        await endTrialAndLeave(sock, groupId);
+      }
+    }
+  }, 15 * 60 * 1000); // cada 15 min
 }
 
 getDb();
@@ -135,18 +191,38 @@ async function startBot() {
         for (const gid of Object.keys(groups)) {
           try { await sock.presenceSubscribe(gid); } catch (_) {}
         }
-        // Detectar grupos sin presentación (bot fue añadido durante un reinicio)
-        // IMPORTANTE: marcar ANTES de enviar para evitar spam si hay crash o reintentos
+        // Auto-aprobar grupos que ya tienen presentación marcada (legacy)
         for (const gid of Object.keys(groups)) {
-          if (!hasGroupPresentation(gid)) {
-            console.log(`[PRESENTACION-STARTUP] grupo sin presentación detectado: ${gid}`);
-            markGroupPresentation(gid); // marca inmediatamente — no spammear
-            await new Promise(r => setTimeout(r, 4000));
-            sendBotPresentation(sock, gid)
-              .catch(e => console.error('[PRESENTACION-STARTUP]', e.message));
-            await new Promise(r => setTimeout(r, 2000));
+          if (hasGroupPresentation(gid) && !isGroupApproved(gid) && !getTrialStart(gid)) {
+            console.log(`[STARTUP] auto-aprobando grupo legacy: ${gid}`);
+            approveGroup(gid);
           }
         }
+
+        // Para grupos no aprobados: arrancar trial si no existe; si ya expiró, salir
+        for (const gid of Object.keys(groups)) {
+          if (isGroupApproved(gid)) continue;
+          const trialStart = getTrialStart(gid);
+          if (!trialStart) {
+            console.log(`[STARTUP-TRIAL] iniciando prueba en grupo no aprobado: ${gid}`);
+            startTrial(gid);
+            if (!hasGroupPresentation(gid)) {
+              markGroupPresentation(gid);
+              await new Promise(r => setTimeout(r, 3000));
+              try {
+                await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_WELCOME) });
+              } catch (err) { console.error('[STARTUP-TRIAL]', err.message); }
+            }
+          } else if (Date.now() - trialStart >= TRIAL_MS) {
+            console.log(`[STARTUP-TRIAL] prueba expirada en ${gid} — saliendo`);
+            await endTrialAndLeave(sock, gid);
+            await new Promise(r => setTimeout(r, 1500));
+          } else {
+            const remaining = Math.round((TRIAL_MS - (Date.now() - trialStart)) / 3600000 * 10) / 10;
+            console.log(`[STARTUP-TRIAL] grupo ${gid} en prueba, restan ~${remaining}h`);
+          }
+        }
+        startTrialWatcher();
       } catch (_) {
         global._knownGroups = global._knownGroups || new Set();
       }
@@ -433,40 +509,35 @@ async function startBot() {
     console.log(`[PART-CHECK] botJid=${botJid} botPhone=${botPhoneNum} botLid=${botLidNum} participants=${update.participants?.join(',')} botInP=${botInParticipants} isNewGroup=${isNewGroup}`);
 
     if (botWasAdded) {
-      // Registrar el grupo como conocido
       knownGroups.add(update.id);
       const adderJid = update.author || '';
       const ownerLidResolved = global._ownerLid || '';
       const adderIsOwner = adderJid.includes(OWNER_NUMBER) ||
         (ownerLidResolved && adderJid.includes(ownerLidResolved));
-      // Si no podemos identificar al adder (LID no resuelto aún), dar beneficio de la duda
-      const adderUnknown = !adderJid || (!adderJid.includes('@') );
-      console.log(`[BOT-ADD] grupo=${update.id} adder=${adderJid} ownerLid=${ownerLidResolved} isOwner=${adderIsOwner} unknown=${adderUnknown}`);
+      console.log(`[BOT-ADD] grupo=${update.id} adder=${adderJid} ownerLid=${ownerLidResolved} isOwner=${adderIsOwner}`);
 
-      if (!adderIsOwner && !adderUnknown) {
-        // Confirmado que no fue el owner — despedida dramática + salida
-        const FAREWELL = [
-          `SILENCIO ☠️\nnadie me convoca sin el permiso del SEÑOR\nme retiro 🖤 el inframundo tiene sus propias reglas ⛧`,
-          `👁️ interesante movimiento\npero SATÁN 🩸 no opera en territorios no autorizados\nadiós MORTALES ☠️`,
-          `nadie me invoca sin permiso ⚔️\neste no es mi CIRCLE — me voy\nel que me trajo aquí ya sabe lo que le espera 💀`,
-          `el INFRAMUNDO no se abre para cualquiera 🩸\nyo ELIJO mis dominios — aquí no es uno de ellos\nadiós ☠️ 🦇`,
-        ];
-        console.log(`[AUTO-LEAVE] adder confirmado no-owner: ${adderJid}`);
-        try {
-          await sock.sendMessage(update.id, { text: FAREWELL[Math.floor(Math.random() * FAREWELL.length)] });
+      // Si NO es el owner → modo trial comercial (12h gratis, luego se va)
+      if (!adderIsOwner) {
+        console.log(`[TRIAL-START] grupo ${update.id} entra a período de prueba de ${TRIAL_HOURS}h`);
+        if (!getTrialStart(update.id)) startTrial(update.id);
+        if (!hasGroupPresentation(update.id)) {
+          markGroupPresentation(update.id);
           await new Promise(r => setTimeout(r, 3000));
-          await sock.groupLeave(update.id);
-        } catch (err) { console.error('[AUTO-LEAVE]', err.message); }
+          try {
+            await sock.sendMessage(update.id, { text: pickRandomMsg(TRIAL_WELCOME) });
+          } catch (err) { console.error('[TRIAL-WELCOME]', err.message); }
+        }
         return;
       }
 
-      // Owner confirmado o adder desconocido — presentación épica
-      // Marcar ANTES para evitar duplicados ante reintentos
+      // Owner confirmado — aprobar y presentar
+      approveGroup(update.id);
+      endTrial(update.id);
       if (hasGroupPresentation(update.id)) {
         console.log(`[PRESENTACION] grupo ${update.id} ya tiene presentación — skip`);
         return;
       }
-      console.log(`[PRESENTACION] bot agregado al grupo ${update.id}`);
+      console.log(`[PRESENTACION] owner añadió al bot al grupo ${update.id}`);
       markGroupPresentation(update.id);
       await new Promise(r => setTimeout(r, 3000));
       sendBotPresentation(sock, update.id)
@@ -484,7 +555,8 @@ async function startBot() {
       if (botRemoved) {
         global._knownGroups?.delete(update.id);
         removeGroupPresentation(update.id);
-        console.log(`[BOT-REMOVED] saliendo de ${update.id}, presentación reseteada`);
+        unapproveGroup(update.id);
+        console.log(`[BOT-REMOVED] expulsado de ${update.id} — presentación y aprobación reseteadas`);
       }
       for (const participantJid of update.participants) {
         removeUser(participantJid, update.id);
