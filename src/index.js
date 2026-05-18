@@ -137,81 +137,77 @@ function idLooksLikeOwner(jidStr) {
   return !!(ol && jidStr.includes(ol));
 }
 
-/** Primera bienvenida al entrar el bot: usa metadata (LID, eventos incompletos). */
+/** Lock en memoria para evitar ejecuciones paralelas pero permitir reintentos si falla */
+const _presentationInProgress = new Set();
+
+/** Primera bienvenida al entrar el bot: envía presentación con imagen. */
 async function ensureJoinWelcome(sock, gid, authorJid) {
   if (!gid || !String(gid).endsWith('@g.us')) return;
   if (hasGroupPresentation(gid)) return;
+  if (_presentationInProgress.has(gid)) return;
+  _presentationInProgress.add(gid);
 
-  let meta;
+  console.log(`[JOIN-WELCOME] iniciando para ${gid} author=${authorJid || '∅'}`);
+
   try {
-    meta = await sock.groupMetadata(gid);
-  } catch (e) {
-    console.warn(`[JOIN-WELCOME] metadata pendiente ${gid}:`, e.message);
-    return;
-  }
-
-  const botIn = meta.participants?.some((p) => participantIdLooksLikeBot(sock, p.id));
-  if (!botIn) {
-    console.warn(`[JOIN-WELCOME] bot no detectado en metadata de ${gid} — continuando de todos modos (evento add lo confirma)`);
-  }
-
-  // Resolver ownerLid si no se hizo al inicio (puede fallar en startup)
-  if (!global._ownerLid) {
-    try {
-      const check = await Promise.race([
-        sock.onWhatsApp(OWNER_NUMBER),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-      ]);
-      if (check?.[0]?.lid) {
-        global._ownerLid = check[0].lid.split('@')[0];
-        console.log(`[JOIN-WELCOME] owner LID resuelto tardío: ${global._ownerLid}`);
-      }
-    } catch (_) {}
-  }
-
-  let ownerAdd = idLooksLikeOwner(authorJid);
-  // Fallback 1: meta.owner (creador del grupo)
-  if (!ownerAdd && meta.owner) {
-    ownerAdd = idLooksLikeOwner(meta.owner);
-  }
-  // Fallback 2: buscar al owner entre admins del grupo
-  if (!ownerAdd && meta.participants) {
-    ownerAdd = meta.participants.some((p) => p.admin && idLooksLikeOwner(p.id));
-  }
-  // Fallback 3: si el grupo solo tiene 2 participantes (bot + quien lo añadió) asumir owner
-  if (!ownerAdd && meta.participants?.length === 2) {
-    const nonBot = meta.participants.find((p) => !participantIdLooksLikeBot(sock, p.id));
-    if (nonBot) {
-      ownerAdd = true;
-      // Guardar LID del owner para futuras detecciones
-      if (!global._ownerLid) {
-        global._ownerLid = nonBot.id.split('@')[0].split(':')[0];
-        console.log(`[JOIN-WELCOME] owner LID inferido de grupo 2-personas: ${global._ownerLid}`);
+    // Detectar owner para PRO vs TRIAL (no bloquea el envío)
+    let ownerAdd = idLooksLikeOwner(authorJid);
+    if (!ownerAdd && !global._ownerLid) {
+      try {
+        const check = await Promise.race([
+          sock.onWhatsApp(OWNER_NUMBER),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+        ]);
+        if (check?.[0]?.lid) {
+          global._ownerLid = check[0].lid.split('@')[0];
+          console.log(`[JOIN-WELCOME] owner LID: ${global._ownerLid}`);
+        }
+      } catch (_) {}
+      ownerAdd = idLooksLikeOwner(authorJid);
+    }
+    if (!ownerAdd) {
+      try {
+        const meta = await Promise.race([
+          sock.groupMetadata(gid),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        ]);
+        if (meta?.owner) ownerAdd = idLooksLikeOwner(meta.owner);
+        if (!ownerAdd && meta?.participants) {
+          ownerAdd = meta.participants.some((p) => p.admin && idLooksLikeOwner(p.id));
+        }
+        if (!ownerAdd && meta?.participants?.length <= 2) ownerAdd = true;
+      } catch (_) {
+        ownerAdd = true; // si no podemos verificar, asumir owner (mejor enviar presentación)
       }
     }
-  }
 
-  console.log(`[JOIN-WELCOME] gid=${gid} author=${authorJid || '∅'} ownerLid=${global._ownerLid || '?'} ownerAdd=${ownerAdd} botIn=${botIn}`);
+    console.log(`[JOIN-WELCOME] gid=${gid} ownerAdd=${ownerAdd}`);
 
-  if (!ownerAdd) {
-    if (isTrialConsumed(gid)) {
-      rejectSecondTrialInvitation(sock, gid, authorJid || '').catch((e) => console.error('[JOIN-WELCOME-DENY]', e.message));
-      return;
+    if (ownerAdd) {
+      approveGroup(gid);
+      endTrial(gid);
+      clearTrialConsumed(gid);
+    } else {
+      if (isTrialConsumed(gid)) {
+        rejectSecondTrialInvitation(sock, gid, authorJid || '').catch((e) => console.error('[JOIN-WELCOME-DENY]', e.message));
+        _presentationInProgress.delete(gid);
+        return;
+      }
+      if (!getTrialStart(gid)) startTrial(gid);
     }
-    if (!getTrialStart(gid)) startTrial(gid);
-  } else {
-    approveGroup(gid);
-    endTrial(gid);
-    clearTrialConsumed(gid);
-  }
 
-  // Siempre enviar la presentación completa con imagen
-  markGroupPresentation(gid);
-  try {
+    // Enviar presentación con imagen
     const ok = await sendBotPresentation(sock, gid);
-    if (!ok) console.error('[JOIN-WELCOME] presentación no confirmada para', gid);
+    if (ok) {
+      markGroupPresentation(gid);
+      console.log(`[JOIN-WELCOME] ✓ presentación enviada a ${gid}`);
+    } else {
+      console.error(`[JOIN-WELCOME] ✗ presentación falló para ${gid} — reintentará`);
+    }
   } catch (e) {
-    console.error('[JOIN-WELCOME-PRESENTATION]', e.message);
+    console.error('[JOIN-WELCOME-ERROR]', gid, e.message);
+  } finally {
+    _presentationInProgress.delete(gid);
   }
 }
 

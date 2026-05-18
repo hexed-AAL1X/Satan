@@ -138,40 +138,45 @@ Solo el mensaje, sin comillas ni explicaciones.`;
         temperature: 1.1,
         max_tokens: 160,
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000)),
     ]);
     const msg = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
     if (msg) return msg;
-  } catch {}
+  } catch (e) { console.warn('[PRESENTACION] Groq falló, usando fallback:', e.message); }
   return PRESENTATION_FALLBACK[Math.floor(Math.random() * PRESENTATION_FALLBACK.length)];
 }
 
 async function sendBotPresentation(sock, jid) {
-  console.log(`[PRESENTACION] generando mensaje para ${jid}`);
+  console.log(`[PRESENTACION] inicio para ${jid}`);
   const msg = await generateBotPresentation();
-  console.log(`[PRESENTACION] mensaje listo, enviando a ${jid}`);
-  try {
-    if (fs.existsSync(SATAN_IMG)) {
+  console.log(`[PRESENTACION] texto listo (${msg.length} chars), enviando...`);
+
+  // Intentar con imagen
+  if (fs.existsSync(SATAN_IMG)) {
+    try {
       const imgBuffer = fs.readFileSync(SATAN_IMG);
+      console.log(`[PRESENTACION] imagen leída (${imgBuffer.length} bytes)`);
       await Promise.race([
         sock.sendMessage(jid, { image: imgBuffer, caption: msg }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('send timeout')), 15000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('img send timeout 12s')), 12000)),
       ]);
-      console.log(`[PRESENTACION] enviado con imagen a ${jid}`);
+      console.log(`[PRESENTACION] ✓ enviado con imagen`);
       return true;
+    } catch (e) {
+      console.error('[PRESENTACION] imagen falló:', e.message, '— enviando solo texto');
     }
-    const { sendWithTyping } = require('../utils/typing');
-    await sendWithTyping(sock, jid, msg);
+  } else {
+    console.warn(`[PRESENTACION] imagen no encontrada en ${SATAN_IMG}`);
+  }
+
+  // Fallback: solo texto (sin typing delay para rapidez)
+  try {
+    await sock.sendMessage(jid, { text: msg });
+    console.log(`[PRESENTACION] ✓ enviado solo texto`);
     return true;
   } catch (e) {
-    console.error('[PRESENTACION]', e.message);
-    try {
-      const { sendWithTyping } = require('../utils/typing');
-      await sendWithTyping(sock, jid, msg);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    console.error('[PRESENTACION] ✗ texto también falló:', e.message);
+    return false;
   }
 }
 
