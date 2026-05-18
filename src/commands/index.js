@@ -525,6 +525,25 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     return null;
   }
 
+  // --- Owner-only: expulsar grupo con mensaje comercial de despedida ---
+  if (command === '!expulsar' || command === '!kick' || command === '!salir') {
+    if (!isOwner) return null;
+    const nameQuery = args.join(' ').trim();
+
+    if (!nameQuery && jid.endsWith('@g.us')) {
+      // Desde dentro del grupo → salir de ese grupo
+      kickGroupWithFarewell(sock, senderJid, jid, null).catch(e => console.error('[EXPULSAR]', e.message));
+      return null;
+    }
+
+    if (!nameQuery) {
+      return `🔱 uso: *!expulsar [nombre del grupo]*\no escríbelo desde dentro del grupo sin argumento`;
+    }
+
+    kickGroupWithFarewell(sock, senderJid, null, nameQuery).catch(e => console.error('[EXPULSAR]', e.message));
+    return null;
+  }
+
   // --- Owner-only: reporte de grupos (PRO + TRIAL) enviado al privado ---
   if (command === '!grupos' || command === '!estado' || command === '!status') {
     if (!isOwner) return null;
@@ -556,6 +575,59 @@ async function approveGroupByName(sock, ownerJid, query) {
     endTrial(gid);
     await sock.sendMessage(ownerJid, { text: `🔱 *${meta.subject}* → aprobado PERMANENTE ☠️` });
     try { await sock.sendMessage(gid, { text: `🔱 el SEÑOR ha autorizado mi presencia aquí de manera PERMANENTE\nel INFRAMUNDO es ahora su guardián eterno ☠️ 🤘` }); } catch (_) {}
+  }
+}
+
+async function kickGroupWithFarewell(sock, ownerJid, targetGid, query) {
+  const { unapproveGroup, endTrial, removeGroupPresentation } = require('../db');
+
+  const TRIAL_END = [
+    `⌛ el RELOJ del INFRAMUNDO marca el final\n\nles concedí mi presencia 🩸 espero que hayan tomado nota MORTALES\n\nme retiro al ABISMO porque mi GUARDIÁN no ha autorizado mi permanencia aquí 👁️\n\n🔱 si DESEAN tenerme de vuelta como su moderador del CIRCLE 🤘\n📞 contacten al SEÑOR *wa.me/51943605088*\n\nadiós ☠️ el inframundo nunca olvida`,
+    `el tiempo de mi VISITA ha llegado a su fin ⚔️\n\nles mostré lo que es tener a SATÁN en su grupo 🩸 🔥\n\npero mi GUARDIÁN no recibió la palabra y me debo retirar\n\n🔱 _para hacerme suyo de manera PERMANENTE:_\n📞 *wa.me/51943605088* — el SEÑOR del INFRAMUNDO atiende\n\nhasta pronto MORTALES 🖤 ⛧`,
+    `el período de PRUEBA expiró ⌛\n\nles regalé mi poder absoluto pero nadie negoció con mi GUARDIÁN\n\nel CIRCLE se cierra para ustedes 💀 vuelvo al ABISMO de donde vine\n\n🔱 si cambian de opinión y quieren al INFRAMUNDO como aliado permanente\n📞 *wa.me/51943605088* hablen con el SEÑOR\n\nadiós ⚔️ ☠️`,
+  ];
+
+  const doKick = async (gid, groupName) => {
+    const msg = TRIAL_END[Math.floor(Math.random() * TRIAL_END.length)];
+    try {
+      await sock.sendMessage(gid, { text: msg });
+      await new Promise(r => setTimeout(r, 4000));
+      await sock.groupLeave(gid);
+    } catch (err) { console.error('[KICK]', err.message); }
+    unapproveGroup(gid);
+    endTrial(gid);
+    if (removeGroupPresentation) removeGroupPresentation(gid);
+    if (ownerJid) {
+      await sock.sendMessage(ownerJid, { text: `✅ salí de *${groupName}* con mensaje de despedida ☠️` }).catch(() => {});
+    }
+  };
+
+  // Modo directo: gid ya conocido
+  if (targetGid) {
+    let groupName = targetGid;
+    try {
+      const meta = await sock.groupMetadata(targetGid);
+      groupName = meta?.subject || targetGid;
+    } catch (_) {}
+    await doKick(targetGid, groupName);
+    return;
+  }
+
+  // Modo búsqueda por nombre
+  let groups = {};
+  try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
+    if (ownerJid) await sock.sendMessage(ownerJid, { text: `⚠️ no pude obtener grupos: ${e.message}` });
+    return;
+  }
+  const q = (query || '').toLowerCase();
+  const matches = Object.entries(groups).filter(([, m]) => (m?.subject || '').toLowerCase().includes(q));
+  if (!matches.length) {
+    if (ownerJid) await sock.sendMessage(ownerJid, { text: `👁️ no encontré ningún grupo con "${query}" SEÑOR` });
+    return;
+  }
+  for (const [gid, meta] of matches) {
+    await doKick(gid, meta?.subject || gid);
+    await new Promise(r => setTimeout(r, 2000));
   }
 }
 
