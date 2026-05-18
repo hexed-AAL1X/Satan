@@ -143,11 +143,13 @@ function buildSongMessage() {
   return `la CANCIÓN ⛧ del día:\n\n*${s.title}* ${s.band}\n\n🩸 _${s.fact}_\n\n¿la conocías? ☠️`;
 }
 
-// Envía el contenido diario según el día de la semana
+// Envía el contenido diario según el día de la semana (zona horaria Perú)
 async function sendDailyContent(sock, jid) {
-  const day = new Date().getDay();
+  const peruDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  const day = peruDate.getDay();
+  console.log(`[DAILY] día=${day} (0=dom 1=lun ... 6=sab) jid=${jid}`);
   switch (day) {
-    case 1: return; // Lunes → ranking (se manda aparte)
+    case 1: return sendBandaDia(sock, jid); // Lunes: banda (también va ranking 9:05)
     case 2: return sendAlbumDia(sock, jid);
     case 3: return sendWithTyping(sock, jid, buildCuriosityMessage());
     case 4: return sendBandaDia(sock, jid);
@@ -517,33 +519,78 @@ const CMD_REMINDERS = [
 ];
 
 // --- Setup de todos los cron jobs ---
-// Obtiene todos los grupos donde el bot está activo
+// Cache de grupos activos: se refresca al conectar y se mantiene en memoria
+let cachedGroups = [];
+function setCachedGroups(arr) { cachedGroups = arr; }
+function getCachedGroups() { return cachedGroups.slice(); }
+
+// Obtiene todos los grupos donde el bot está activo (con cache + fallback robusto)
 async function getActiveGroups(sock) {
   try {
-    const groups = await sock.groupFetchAllParticipating();
-    return Object.keys(groups);
+    const groups = await Promise.race([
+      sock.groupFetchAllParticipating(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('fetch_timeout')), 15000)),
+    ]);
+    const ids = Object.keys(groups);
+    if (ids.length) {
+      cachedGroups = ids;
+      return ids;
+    }
   } catch (e) {
-    console.error('[SCHEDULER] no pude obtener grupos:', e.message);
-    return GROUP_ID ? [GROUP_ID] : [];
+    console.error('[SCHEDULER] groupFetchAllParticipating falló:', e.message);
   }
+  // Fallback: cache previo
+  if (cachedGroups.length) {
+    console.log(`[SCHEDULER] usando cache de ${cachedGroups.length} grupos`);
+    return cachedGroups.slice();
+  }
+  // Último recurso: GROUP_ID del env
+  return GROUP_ID ? [GROUP_ID] : [];
 }
 
 // Ejecuta una tarea en todos los grupos activos con un pequeño delay entre cada uno
-async function forEachGroup(sock, fn, delayMs = 1500) {
+async function forEachGroup(sock, fn, delayMs = 1500, label = 'job') {
   const groups = await getActiveGroups(sock);
+  console.log(`[CRON ${label}] disparando en ${groups.length} grupo(s)`);
+  if (!groups.length) {
+    console.error(`[CRON ${label}] NO HAY GRUPOS — verifica conexión`);
+    return;
+  }
   for (const gid of groups) {
     try {
       await fn(gid);
       await new Promise(r => setTimeout(r, delayMs));
     } catch (err) {
-      console.error(`[SCHEDULER] error en ${gid}:`, err.message);
+      console.error(`[CRON ${label}] error en ${gid}:`, err.message);
     }
   }
 }
 
-function setupScheduler(sock) {
-  // Buenos días todos los días a las 5:00 AM con sticker
-  cron.schedule('0 5 * * *', async () => {
+// Acepta un sock directo o un objeto { getSock: () => sock }.
+// El getter permite que los crons sigan funcionando aunque el sock cambie por reconexión.
+function setupScheduler(arg) {
+  const getSock = typeof arg?.getSock === 'function' ? arg.getSock : () => arg;
+  const safe = (fn) => async () => {
+    try {
+      const sock = getSock();
+      if (!sock) { console.error('[CRON] no hay sock activo'); return; }
+      await fn(sock);
+    } catch (e) {
+      console.error('[CRON-ERR]', e.message);
+    }
+  };
+
+  // Pre-cargar lista de grupos
+  (async () => {
+    const sock = getSock();
+    if (sock) {
+      const g = await getActiveGroups(sock);
+      console.log(`[SCHEDULER] grupos en cache: ${g.length}`);
+    }
+  })();
+
+  // Buenos días 5:00 AM
+  cron.schedule('0 5 * * *', safe(async (sock) => {
     const msg = await getBuenosDias();
     await forEachGroup(sock, async (gid) => {
       await sendWithTyping(sock, gid, msg);
@@ -551,69 +598,71 @@ function setupScheduler(sock) {
         await new Promise(r => setTimeout(r, 1000));
         await sendMorningStickers(sock, gid);
       }
-    });
-  }, { timezone: 'America/Lima' });
+    }, 1500, 'buenos-dias');
+  }), { timezone: 'America/Lima' });
 
-  // On This Day — todos los días a las 7AM
-  cron.schedule('0 7 * * *', async () => {
-    await forEachGroup(sock, async (gid) => sendOnThisDay(sock, gid));
-  }, { timezone: 'America/Lima' });
+  // On This Day 7AM
+  cron.schedule('0 7 * * *', safe(async (sock) => {
+    await forEachGroup(sock, async (gid) => sendOnThisDay(sock, gid), 1500, 'onthisday');
+  }), { timezone: 'America/Lima' });
 
-  // Ranking del lunes a las 9:05 AM
-  cron.schedule('5 9 * * 1', async () => {
+  // Ranking lunes 9:05 AM
+  cron.schedule('5 9 * * 1', safe(async (sock) => {
     await forEachGroup(sock, async (gid) => {
       await sendWeekWinner(sock, gid, gid);
       await new Promise(r => setTimeout(r, 3000));
       const msg = buildRankingMessage(gid);
       if (msg) await sendWithTyping(sock, gid, msg);
-    });
-  }, { timezone: 'America/Lima' });
+    }, 2000, 'ranking-lunes');
+  }), { timezone: 'America/Lima' });
 
-  // Top mensual — día 1 a las 9AM
-  cron.schedule('0 9 1 * *', async () => {
-    await forEachGroup(sock, async (gid) => sendMonthlyTop(sock, gid, gid));
-  }, { timezone: 'America/Lima' });
+  // Top mensual día 1 9AM
+  cron.schedule('0 9 1 * *', safe(async (sock) => {
+    await forEachGroup(sock, async (gid) => sendMonthlyTop(sock, gid, gid), 1500, 'top-mensual');
+  }), { timezone: 'America/Lima' });
 
-  // Battle automático — sábados y domingos a las 2PM
-  cron.schedule('0 14 * * 6,0', async () => {
-    await forEachGroup(sock, async (gid) => sendBattle(sock, gid));
-  }, { timezone: 'America/Lima' });
+  // Battle sáb/dom 2PM
+  cron.schedule('0 14 * * 6,0', safe(async (sock) => {
+    await forEachGroup(sock, async (gid) => sendBattle(sock, gid), 1500, 'battle');
+  }), { timezone: 'America/Lima' });
 
-  // Contenido diario: 9AM, 1PM, 7PM
-  ['0 9 * * *', '0 13 * * *', '0 19 * * *'].forEach(cronExpr => {
-    cron.schedule(cronExpr, async () => {
-      await forEachGroup(sock, async (gid) => sendDailyContent(sock, gid));
-    }, { timezone: 'America/Lima' });
+  // Contenido diario 9AM/1PM/7PM
+  ['0 9 * * *', '0 13 * * *', '0 19 * * *'].forEach((cronExpr, i) => {
+    const labels = ['contenido-9am', 'contenido-1pm', 'contenido-7pm'];
+    cron.schedule(cronExpr, safe(async (sock) => {
+      await forEachGroup(sock, async (gid) => sendDailyContent(sock, gid), 1500, labels[i]);
+    }), { timezone: 'America/Lima' });
   });
 
-  // Metal Quiz: L, M, V a 1:20PM y 7:30PM
-  ['20 13 * * 1,3,5', '30 19 * * 1,3,5'].forEach(cronExpr => {
-    cron.schedule(cronExpr, async () => {
-      await forEachGroup(sock, async (gid) => startMetalQuiz(sock, gid));
-    }, { timezone: 'America/Lima' });
+  // Metal Quiz L/M/V 1:20PM y 7:30PM
+  ['20 13 * * 1,3,5', '30 19 * * 1,3,5'].forEach((cronExpr, i) => {
+    const labels = ['quiz-1:20pm', 'quiz-7:30pm'];
+    cron.schedule(cronExpr, safe(async (sock) => {
+      await forEachGroup(sock, async (gid) => startMetalQuiz(sock, gid), 1500, labels[i]);
+    }), { timezone: 'America/Lima' });
   });
 
-  // Detector de inactividad: cada hora 5AM-11PM
-  cron.schedule('0 * * * *', async () => {
+  // Inactividad: cada hora 5AM-11PM
+  cron.schedule('0 * * * *', safe(async (sock) => {
     const horasPeru = new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false });
     const hora = parseInt(horasPeru);
     if (hora < 5 || hora > 23) return;
     const horasSinMensaje = (Date.now() - lastMessageTime) / (1000 * 60 * 60);
     if (horasSinMensaje >= 4) {
       const msg = getInactivityMessage();
-      await forEachGroup(sock, async (gid) => sendWithTyping(sock, gid, msg));
+      await forEachGroup(sock, async (gid) => sendWithTyping(sock, gid, msg), 1500, 'inactividad');
       lastMessageTime = Date.now();
     }
-  }, { timezone: 'America/Lima' });
+  }), { timezone: 'America/Lima' });
 
-  // Recordatorio de comandos cada 6 horas 5AM-11PM
-  cron.schedule('0 */6 * * *', async () => {
+  // Recordatorio comandos cada 6h 5AM-11PM
+  cron.schedule('0 */6 * * *', safe(async (sock) => {
     const horasPeru = new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false });
     const hora = parseInt(horasPeru);
     if (hora < 5 || hora > 23) return;
     const msg = CMD_REMINDERS[Math.floor(Math.random() * CMD_REMINDERS.length)];
-    await forEachGroup(sock, async (gid) => sendWithTyping(sock, gid, msg));
-  }, { timezone: 'America/Lima' });
+    await forEachGroup(sock, async (gid) => sendWithTyping(sock, gid, msg), 1500, 'cmd-reminder');
+  }), { timezone: 'America/Lima' });
 
   console.log('\x1b[1;32m✔  Scheduler activo (multi-grupo) — buenos días 5AM · contenido 9AM/1PM/7PM · ranking lunes 9:05AM · trivia L/M/V 1:20PM/7:30PM · inactividad/comandos desde 5AM\x1b[0m');
 }

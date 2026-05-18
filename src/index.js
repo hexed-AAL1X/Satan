@@ -150,7 +150,16 @@ async function startBot() {
       } catch (_) {
         global._knownGroups = global._knownGroups || new Set();
       }
-      setupScheduler(sock);
+      // Guardar el sock actual globalmente para que el scheduler use siempre el activo
+      global._sock = sock;
+      // Solo instalar scheduler una vez por proceso (reconexiones reusan el getter)
+      if (!global._schedulerInstalled) {
+        global._schedulerInstalled = true;
+        // El scheduler recibirá un getter para tomar siempre el sock vivo
+        setupScheduler({ getSock: () => global._sock });
+      } else {
+        console.log('[SCHEDULER] ya estaba instalado — sock actualizado');
+      }
 
       // Servidor HTTP interno — solo arrancar una vez
       if (!global._apiServerStarted) {
