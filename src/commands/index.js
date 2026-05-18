@@ -420,28 +420,31 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
 
   if (command === '!rank' || command === '!rango') {
     const user = getUser(senderJid, jid);
-    if (!user) return await satanGroqMessage('rank_none', { senderName });
-    return await satanGroqMessage('rank_card', {
-      senderName,
-      emoji: getLevelEmoji(user.level),
-      levelName: getLevelName(user.level),
-      points: user.points,
-      strikes: user.strikes,
-    });
+    if (!user) return `⚔️ @${senderName}, aún no tienes aportes en el CIRCLE\n\n🤘 comparte música y empieza a SUBIR de rango ☠️`;
+    const emoji = getLevelEmoji(user.level);
+    const levelName = getLevelName(user.level);
+    return `${emoji} *RANGO DE @${senderName}* ${emoji}\n\n` +
+      `🔱 Rango: *${levelName}*\n` +
+      `⚔️ Puntos totales: *${user.points}*\n` +
+      `🔥 Puntos mensuales: *${user.monthly_points || 0}*\n` +
+      `🦇 Strikes: *${user.strikes}/3*\n` +
+      `📅 Racha: *${user.streak || 0} días*\n\n` +
+      `☠️ el CIRCLE te observa 🖤`;
   }
 
   if (command === '!top' || command === '!ranking') {
     const top = getWeeklyRanking(null, jid);
-    if (!top.length) return await satanGroqMessage('top_empty');
+    if (!top.length) return `☠️ Nadie ha aportado esta semana aún\n\n🤘 Sean los primeros en OFRECER al CIRCLE ⚔️`;
     const medals = ['🥇', '🥈', '🥉'];
     const podium = top.slice(0, 3).map((u, i) =>
-      `${medals[i]} *${i + 1}er puesto* ${u.name} ${getLevelEmoji(u.level)}  [ ${u.weekly_points} pts ]`
+      `${medals[i]} *${i + 1}°* ${u.name} ${getLevelEmoji(u.level)} — *${u.weekly_points} pts*`
     ).join('\n');
     const rest = top.slice(3).map((u, i) =>
       `  ${i + 4}. ${u.name} ${getLevelEmoji(u.level)} ${u.weekly_points} pts`
     ).join('\n');
-    const rawBlock = `${podium}${rest ? '\n\n' + rest : ''}`;
-    return await satanGroqMessage('top_body', { weekKey: getWeekKey(), rawBlock });
+    return `⚔️ *RANKING SEMANAL* ${getWeekKey()} ☠️\n\n` +
+      `${podium}${rest ? '\n\n' + rest : ''}\n\n` +
+      `💀 se reinicia cada lunes ¿dónde estás tú? 🤘`;
   }
 
   if (command === '!ruleset' || command === '!reglas') {
