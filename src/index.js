@@ -17,7 +17,7 @@ const { getWelcomeMessage, sendBotPresentation } = require('./handlers/welcome')
 const { getSatanResponse } = require('./handlers/satan-dm');
 const { saveSticker, sendWelcomeStickers, sendMorningStickers, getStickerFiles } = require('./handlers/stickers');
 const { hasGroupLink, handleGroupLink } = require('./moderation/links');
-const { detectAndRegisterContribution, registerAlbumSession, shouldReact, shouldReactAudio } = require('./contributions/detect');
+const { detectAndRegisterContribution, registerAlbumSession, shouldReact, shouldReactAudio, classifyMedia } = require('./contributions/detect');
 const { handleChatMessage, handleCommand, saveMemeFromMsg } = require('./commands');
 const { checkTriviaAnswer } = require('./commands/trivia');
 const { setupScheduler, updateLastMessage, registerBattleVote, registerPollVote, getBattlePollKey, hasBattle } = require('./scheduler');
@@ -647,21 +647,22 @@ async function startBot() {
         const REACTION_EMOJIS = ['🤘', '🔥', '☠️', '💀', '🖤', '⚔️', '🦇', '🫀'];
         const randomReaction = () => REACTION_EMOJIS[Math.floor(Math.random() * REACTION_EMOJIS.length)];
 
-        // 1a. Aporte por imagen/archivo — sesión de álbum (5 pts, una sola vez por sesión)
+        // 1a. Aporte por imagen/archivo — sesión de álbum (5 pts, solo si es música real)
         if (isGroup && isMedia) {
           const caption = (rawMsg?.imageMessage?.caption || rawMsg?.videoMessage?.caption || '').toLowerCase();
           const isImage = !!rawMsg?.imageMessage;
-          const isAudio = !!(rawMsg?.audioMessage || rawMsg?.documentMessage);
+
           // Meme solo si caption tiene texto cómico explícito
           const looksLikeMeme = isImage &&
             /jaja|lol|xd|jeje|😂|🤣|gracioso|cuando|pov:|me when|nobody:|nadie:|broo|💀/.test(caption);
 
-          const points = registerAlbumSession(senderJid, senderName, jid);
-          if (points > 0) console.log(`[ÁLBUM SESSION] ${senderName} +${points} pts`);
+          // Clasificar primero el contenido antes de decidir puntos/reacciones
+          const kind = classifyMedia(rawMsg, senderJid, jid);
+          const points = registerAlbumSession(senderJid, senderName, jid, rawMsg);
+          if (points > 0) console.log(`[APORTE +${points}] ${senderName} (${kind})`);
 
-          // Imágenes: siempre reaccionar (portadas de álbum + memes)
-          // Audios/docs: máximo 1-3 por sesión (random)
-          const doReact = isImage || shouldReactAudio(senderJid);
+          // Reaccionar SOLO si es contenido musical o un meme con caption explícito
+          const doReact = (kind === 'music' && (isImage || shouldReactAudio(senderJid, jid))) || looksLikeMeme;
           if (doReact) {
             const delay = 1500 + Math.random() * 5000;
             const emoji = looksLikeMeme
@@ -714,7 +715,7 @@ async function startBot() {
           if (points > 0) {
             console.log(`[APORTE LINK] ${senderName} +${points} pts`);
 
-            if (shouldReact(senderJid) || points > 0) {
+            if (shouldReact(senderJid, jid) || points > 0) {
               const delay = 1500 + Math.random() * 4000;
               const emoji = randomReaction();
               setTimeout(async () => {
