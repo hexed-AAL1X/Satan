@@ -682,11 +682,16 @@ async function kickGroupWithFarewell(sock, ownerJid, targetGid, query) {
     `el período de PRUEBA expiró ⌛\n\nles regalé mi poder absoluto pero nadie negoció con mi GUARDIÁN\n\nel CIRCLE se cierra para ustedes 💀 vuelvo al ABISMO de donde vine\n\n🔱 si cambian de opinión y quieren al INFRAMUNDO como aliado permanente\n📞 *wa.me/51943605088* hablen con el SEÑOR\n\nadiós ⚔️ ☠️`,
   ];
 
+  const { sendTrialExpiredFarewell } = require('../handlers/trial-farewell');
+  const TRIAL_HOURS_KICK = 12;
+
   const doKick = async (gid, groupName) => {
-    const msg = TRIAL_END[Math.floor(Math.random() * TRIAL_END.length)];
     try {
-      await sock.sendMessage(gid, { text: msg });
-      await new Promise(r => setTimeout(r, 4000));
+      await sendTrialExpiredFarewell(sock, gid, {
+        trialHours: TRIAL_HOURS_KICK,
+        getFallbackCaption: () => TRIAL_END[Math.floor(Math.random() * TRIAL_END.length)],
+        delayBeforeLeaveMs: 4000,
+      });
       await sock.groupLeave(gid);
     } catch (err) { console.error('[KICK]', err.message); }
     unapproveGroup(gid);

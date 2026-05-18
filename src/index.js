@@ -14,6 +14,7 @@ const http = require('http');
 const { upsertUser, getDb, updateLevel, removeUser, isUserMuted, hasGroupPresentation, markGroupPresentation, removeGroupPresentation, isGroupApproved, approveGroup, unapproveGroup, startTrial, getTrialStart, endTrial, getAllTrials, markTrialConsumed, isTrialConsumed } = require('./db');
 const { getLevelName, getLevelEmoji } = require('./scheduler/ranking');
 const { getWelcomeMessage, sendBotPresentation } = require('./handlers/welcome');
+const { sendTrialExpiredFarewell, generateSecondInviteRejectedCaption } = require('./handlers/trial-farewell');
 const { getSatanResponse } = require('./handlers/satan-dm');
 const { saveSticker, sendWelcomeStickers, sendMorningStickers, getStickerFiles } = require('./handlers/stickers');
 const { hasGroupLink, handleGroupLink } = require('./moderation/links');
@@ -80,7 +81,10 @@ async function rejectSecondTrialInvitation(sock, gid, adderJid) {
     groupName = meta?.subject || gid;
   } catch (_) {}
   try {
-    await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_REJECT_GROUP) });
+    const grpText =
+      (await generateSecondInviteRejectedCaption(groupName).catch(() => null)) ||
+      pickRandomMsg(TRIAL_REJECT_GROUP);
+    await sock.sendMessage(gid, { text: grpText });
   } catch (e) { console.error('[TRIAL-DENY-GROUP]', e.message); }
 
   await new Promise(r => setTimeout(r, 2500));
@@ -111,8 +115,11 @@ function pickRandomMsg(arr) { return arr[Math.floor(Math.random() * arr.length)]
 async function endTrialAndLeave(sock, gid) {
   console.log(`[TRIAL-END] expirando ${gid}`);
   try {
-    await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_END) });
-    await new Promise(r => setTimeout(r, 4000));
+    await sendTrialExpiredFarewell(sock, gid, {
+      trialHours: TRIAL_HOURS,
+      getFallbackCaption: () => pickRandomMsg(TRIAL_END),
+      delayBeforeLeaveMs: 4000,
+    });
     await sock.groupLeave(gid);
   } catch (err) { console.error('[TRIAL-END]', err.message); }
   endTrial(gid);
