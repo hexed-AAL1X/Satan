@@ -18,7 +18,7 @@ const { getSatanResponse } = require('./handlers/satan-dm');
 const { saveSticker, sendWelcomeStickers, sendMorningStickers, getStickerFiles } = require('./handlers/stickers');
 const { hasGroupLink, handleGroupLink } = require('./moderation/links');
 const { detectAndRegisterContribution, registerAlbumSession, shouldReact, shouldReactAudio, classifyMedia } = require('./contributions/detect');
-const { handleChatMessage, handleCommand, saveMemeFromMsg } = require('./commands');
+const { handleChatMessage, handleCommand, saveMemeFromMsg, handlePendingMenu } = require('./commands');
 const { checkTriviaAnswer } = require('./commands/trivia');
 const { setupScheduler, updateLastMessage, registerBattleVote, registerPollVote, getBattlePollKey, hasBattle } = require('./scheduler');
 const { sendWithTyping } = require('./utils/typing');
@@ -678,6 +678,11 @@ async function startBot() {
 
       // Responder en privado como SATÁN (cualquier texto que no sea comando)
       if (!isGroup && text && !text.startsWith('!')) {
+        // Owner: verificar si hay un menú pendiente esperando respuesta numérica
+        if (isOwner(senderJid)) {
+          const handled = await handlePendingMenu(sock, senderJid, text).catch(() => false);
+          if (handled) continue;
+        }
         const reply = await getSatanResponse(senderJid, text, isOwner(senderJid));
         await sendWithTyping(sock, jid, reply);
         continue;

@@ -493,127 +493,183 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     return null;
   }
 
-  // --- Owner-only: aprobar/desaprobar grupo (modo comercial) ---
-  if (command === '!aprobar' || command === '!approve') {
+  // --- Comandos owner-only: menú interactivo ---
+  const OWNER_MENU_CMDS = ['!aprobar', '!approve', '!degradar', '!trial', '!expulsar', '!kick', '!salir'];
+  if (OWNER_MENU_CMDS.includes(command)) {
     if (!isOwner) return null;
-    const { approveGroup, endTrial } = require('../db');
-    const nameQuery = args.join(' ').trim();
 
-    // Sin argumento: aprobar el grupo actual
-    if (!nameQuery || jid.endsWith('@g.us')) {
-      approveGroup(jid);
-      endTrial(jid);
-      return `🔱 grupo aprobado por el SEÑOR\nel INFRAMUNDO se queda aquí de manera PERMANENTE ☠️`;
+    // Desde dentro de un grupo sin args → acción directa
+    if (jid.endsWith('@g.us') && args.length === 0) {
+      if (command === '!aprobar' || command === '!approve') {
+        const { approveGroup, endTrial } = require('../db');
+        approveGroup(jid); endTrial(jid);
+        return `🔱 grupo aprobado PERMANENTE ☠️`;
+      }
+      if (command === '!degradar' || command === '!trial') {
+        const { unapproveGroup, startTrial, getTrialStart } = require('../db');
+        unapproveGroup(jid);
+        if (!getTrialStart(jid)) startTrial(jid);
+        return `⌛ modo TRIAL activado — 12h y me voy ☠️`;
+      }
+      if (['!expulsar','!kick','!salir'].includes(command)) {
+        kickGroupWithFarewell(sock, senderJid, jid, null).catch(console.error);
+        return null;
+      }
     }
 
-    // Con argumento desde privado: buscar grupo por nombre parcial
-    approveGroupByName(sock, senderJid, nameQuery).catch(e => console.error('[APROBAR]', e.message));
+    // Desde privado o con args → mostrar menú interactivo
+    openOwnerMenu(sock, senderJid, command).catch(e => console.error('[MENU]', e.message));
     return null;
   }
 
-  if (command === '!desaprobar' || command === '!unapprove') {
-    if (!isOwner) return null;
-    const { unapproveGroup } = require('../db');
-    const nameQuery = args.join(' ').trim();
-
-    if (!nameQuery || jid.endsWith('@g.us')) {
-      unapproveGroup(jid);
-      return `⚔️ grupo desaprobado\nel próximo reinicio aplicará período de prueba`;
-    }
-
-    unapproveGroupByName(sock, senderJid, nameQuery).catch(e => console.error('[DESAPROBAR]', e.message));
-    return null;
-  }
-
-  // --- Owner-only: bajar grupo PRO a trial (inicia contador 12h) ---
-  if (command === '!degradar' || command === '!trial') {
-    if (!isOwner) return null;
-    const { unapproveGroup, startTrial, getTrialStart } = require('../db');
-    const nameQuery = args.join(' ').trim();
-
-    const doDemote = async (gid, groupName) => {
-      unapproveGroup(gid);
-      if (!getTrialStart(gid)) startTrial(gid);
-      const TRIAL_MS = 12 * 60 * 60 * 1000;
-      const started = getTrialStart(gid);
-      const remaining = started ? Math.round((TRIAL_MS - (Date.now() - started)) / 3600000 * 10) / 10 : 12;
-      await sock.sendMessage(senderJid, {
-        text: `⌛ *${groupName}* bajado a TRIAL\nse irá en ~${remaining}h si no se aprueba ☠️`
-      }).catch(() => {});
-    };
-
-    if (!nameQuery && jid.endsWith('@g.us')) {
-      let groupName = jid;
-      try { const meta = await sock.groupMetadata(jid); groupName = meta?.subject || jid; } catch (_) {}
-      await doDemote(jid, groupName);
-      return `⌛ este grupo ahora está en modo TRIAL\ncuenta regresiva de 12h activada ☠️`;
-    }
-
-    if (!nameQuery) return `🔱 uso: *!degradar [nombre del grupo]*`;
-
-    let groups = {};
-    try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
-      return `⚠️ no pude obtener grupos: ${e.message}`;
-    }
-    const q = nameQuery.toLowerCase();
-    const matches = Object.entries(groups).filter(([, m]) => (m?.subject || '').toLowerCase().includes(q));
-    if (!matches.length) return `👁️ no encontré ningún grupo con "${nameQuery}" SEÑOR`;
-    for (const [gid, meta] of matches) await doDemote(gid, meta?.subject || gid);
-    return null;
-  }
-
-  // --- Owner-only: expulsar grupo con mensaje comercial de despedida ---
-  if (command === '!expulsar' || command === '!kick' || command === '!salir') {
-    if (!isOwner) return null;
-    const nameQuery = args.join(' ').trim();
-
-    if (!nameQuery && jid.endsWith('@g.us')) {
-      // Desde dentro del grupo → salir de ese grupo
-      kickGroupWithFarewell(sock, senderJid, jid, null).catch(e => console.error('[EXPULSAR]', e.message));
-      return null;
-    }
-
-    if (!nameQuery) {
-      return `🔱 uso: *!expulsar [nombre del grupo]*\no escríbelo desde dentro del grupo sin argumento`;
-    }
-
-    kickGroupWithFarewell(sock, senderJid, null, nameQuery).catch(e => console.error('[EXPULSAR]', e.message));
-    return null;
-  }
-
-  // --- Owner-only: reporte de grupos (PRO + TRIAL) enviado al privado ---
+  // --- Owner-only: reporte de grupos (PRO + TRIAL) ---
   if (command === '!grupos' || command === '!estado' || command === '!status') {
     if (!isOwner) return null;
     sendGroupsReport(sock, senderJid).catch(e => console.error('[GRUPOS]', e.message));
-    if (jid !== senderJid) {
-      return `🔱 reporte enviado al privado SEÑOR ☠️`;
-    }
+    if (jid !== senderJid) return `🔱 reporte enviado al privado SEÑOR ☠️`;
+    return null;
+  }
+
+  // --- Owner-only: ayuda privada ---
+  if (command === '!ownerhelp' || command === '!adminhelp') {
+    if (!isOwner) return null;
+    const helpMsg = [
+      `🔱 *PANEL DEL SEÑOR* ☠️`,
+      ``,
+      `*GESTIÓN DE GRUPOS*`,
+      `!grupos — reporte completo (PRO/TRIAL/tiempo)`,
+      `!aprobar — menú para aprobar un grupo (PRO permanente)`,
+      `!degradar — menú para bajar un grupo a TRIAL 12h`,
+      `!expulsar — menú para sacar un grupo con despedida comercial`,
+      ``,
+      `*STICKERS*`,
+      `!bd — próximos stickers enviados → banco buenos días`,
+      `!bv — próximos stickers enviados → banco bienvenida`,
+      ``,
+      `*MEMES*`,
+      `!savememe [imagen] — guarda imagen al banco de memes`,
+      ``,
+      `*MODERACIÓN*`,
+      `!mute @usuario — silencia en el grupo`,
+      `!unmute @usuario — quita silencio`,
+      `!ban @usuario — expulsa del grupo`,
+      ``,
+      `*SCHEDULER / TEST*`,
+      `!onthisday — fuerza envío del "on this day"`,
+      ``,
+      `_Solo tú puedes usar estos comandos_ 👁️`,
+    ].join('\n');
+    await sock.sendMessage(senderJid, { text: helpMsg }).catch(() => {});
+    if (jid !== senderJid) return `🔱 ayuda enviada al privado SEÑOR`;
     return null;
   }
 
   return null;
 }
 
-async function approveGroupByName(sock, ownerJid, query) {
-  const { approveGroup, endTrial } = require('../db');
+// ─── Menú interactivo owner ────────────────────────────────────────────────
+// pendingMenus: ownerJid → { action, groups: [{gid, name, status, remaining}], expiresAt }
+const pendingMenus = new Map();
+const MENU_TTL = 2 * 60 * 1000; // 2 minutos para responder
+
+function fmtStatus(gid) {
+  const { isGroupApproved, getTrialStart } = require('../db');
+  const TRIAL_MS = 12 * 60 * 60 * 1000;
+  if (isGroupApproved(gid)) return '🩸 PRO';
+  const ts = getTrialStart(gid);
+  if (ts) {
+    const rem = TRIAL_MS - (Date.now() - ts);
+    return rem > 0 ? `⌛ TRIAL ${fmtRemaining(rem)}` : '⌛ TRIAL EXPIRADO';
+  }
+  return '❓ sin estado';
+}
+
+async function openOwnerMenu(sock, ownerJid, action) {
   let groups = {};
   try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
     await sock.sendMessage(ownerJid, { text: `⚠️ no pude obtener grupos: ${e.message}` });
     return;
   }
-  const q = query.toLowerCase();
-  const matches = Object.entries(groups).filter(([, m]) => (m?.subject || '').toLowerCase().includes(q));
-  if (!matches.length) {
-    await sock.sendMessage(ownerJid, { text: `👁️ no encontré ningún grupo con "${query}" SEÑOR` });
-    return;
+  const list = Object.entries(groups).map(([gid, m], i) => ({
+    num: i + 1,
+    gid,
+    name: m?.subject || gid,
+    size: m?.participants?.length || 0,
+  }));
+
+  const actionLabel = {
+    '!aprobar': '✅ APROBAR (PRO permanente)',
+    '!approve': '✅ APROBAR (PRO permanente)',
+    '!degradar': '⌛ DEGRADAR (TRIAL 12h)',
+    '!trial':    '⌛ DEGRADAR (TRIAL 12h)',
+    '!expulsar': '💀 EXPULSAR (despedida + salir)',
+    '!kick':     '💀 EXPULSAR (despedida + salir)',
+    '!salir':    '💀 EXPULSAR (despedida + salir)',
+  }[action] || action;
+
+  const lines = [`🔱 *${actionLabel}*\n`, `elige el número del grupo SEÑOR:\n`];
+  for (const g of list) {
+    lines.push(`*${g.num}.* ${g.name} 👥${g.size}  ${fmtStatus(g.gid)}`);
   }
-  for (const [gid, meta] of matches) {
-    approveGroup(gid);
-    endTrial(gid);
-    await sock.sendMessage(ownerJid, { text: `🔱 *${meta.subject}* → aprobado PERMANENTE ☠️` });
-    try { await sock.sendMessage(gid, { text: `🔱 el SEÑOR ha autorizado mi presencia aquí de manera PERMANENTE\nel INFRAMUNDO es ahora su guardián eterno ☠️ 🤘` }); } catch (_) {}
-  }
+  lines.push(`\n_responde con el número o con "0" para cancelar_`);
+
+  pendingMenus.set(ownerJid, {
+    action,
+    groups: list,
+    expiresAt: Date.now() + MENU_TTL,
+  });
+
+  await sock.sendMessage(ownerJid, { text: lines.join('\n') });
 }
+
+async function handlePendingMenu(sock, ownerJid, text) {
+  const pending = pendingMenus.get(ownerJid);
+  if (!pending) return false;
+  if (Date.now() > pending.expiresAt) {
+    pendingMenus.delete(ownerJid);
+    return false;
+  }
+
+  const trimmed = text.trim();
+  if (trimmed === '0' || trimmed.toLowerCase() === 'cancelar') {
+    pendingMenus.delete(ownerJid);
+    await sock.sendMessage(ownerJid, { text: `👁️ acción cancelada` });
+    return true;
+  }
+
+  const num = parseInt(trimmed);
+  if (isNaN(num) || num < 1 || num > pending.groups.length) {
+    await sock.sendMessage(ownerJid, { text: `⚠️ número inválido SEÑOR responde entre 1 y ${pending.groups.length} o "0" para cancelar` });
+    return true;
+  }
+
+  pendingMenus.delete(ownerJid);
+  const { gid, name } = pending.groups[num - 1];
+  const { action } = pending;
+
+  if (action === '!aprobar' || action === '!approve') {
+    const { approveGroup, endTrial } = require('../db');
+    approveGroup(gid); endTrial(gid);
+    await sock.sendMessage(ownerJid, { text: `🔱 *${name}* → aprobado PERMANENTE ☠️` });
+    try { await sock.sendMessage(gid, { text: `🔱 el SEÑOR ha autorizado mi presencia aquí de manera PERMANENTE\nel INFRAMUNDO es su guardián eterno ☠️ 🤘` }); } catch (_) {}
+
+  } else if (action === '!degradar' || action === '!trial') {
+    const { unapproveGroup, startTrial, getTrialStart } = require('../db');
+    unapproveGroup(gid);
+    if (!getTrialStart(gid)) startTrial(gid);
+    const ts = getTrialStart(gid);
+    const TRIAL_MS = 12 * 60 * 60 * 1000;
+    const rem = ts ? Math.round((TRIAL_MS - (Date.now() - ts)) / 3600000 * 10) / 10 : 12;
+    await sock.sendMessage(ownerJid, { text: `⌛ *${name}* → TRIAL activado\nse irá en ~${rem}h ☠️` });
+
+  } else if (['!expulsar','!kick','!salir'].includes(action)) {
+    await kickGroupWithFarewell(sock, ownerJid, gid, null);
+  }
+
+  return true;
+}
+
+// ─── Helpers internos ────────────────────────────────────────────────────────
 
 async function kickGroupWithFarewell(sock, ownerJid, targetGid, query) {
   const { unapproveGroup, endTrial, removeGroupPresentation } = require('../db');
@@ -992,4 +1048,4 @@ Si no la conoces exactamente responde: {"album":"","lyrics":"NO_FOUND"}` }],
   }
 }
 
-module.exports = { handleChatMessage, handleCommand, sendRecommendations, sendMeme, getBandInfo, getAlbumInfo, saveMemeFromMsg, getLyrics };
+module.exports = { handleChatMessage, handleCommand, sendRecommendations, sendMeme, getBandInfo, getAlbumInfo, saveMemeFromMsg, getLyrics, handlePendingMenu };
