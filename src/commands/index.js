@@ -505,7 +505,100 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     return `⚔️ grupo desaprobado\nel próximo reinicio aplicará período de prueba`;
   }
 
+  // --- Owner-only: reporte de grupos (PRO + TRIAL) enviado al privado ---
+  if (command === '!grupos' || command === '!estado' || command === '!status') {
+    if (!isOwner) return null;
+    sendGroupsReport(sock, senderJid).catch(e => console.error('[GRUPOS]', e.message));
+    if (jid !== senderJid) {
+      return `🔱 reporte enviado al privado SEÑOR ☠️`;
+    }
+    return null;
+  }
+
   return null;
+}
+
+function fmtRemaining(ms) {
+  if (ms <= 0) return 'EXPIRADO';
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `${h}h ${m}m`;
+}
+
+async function sendGroupsReport(sock, ownerJid) {
+  const { isGroupApproved, getTrialStart, getAllTrials } = require('../db');
+  const TRIAL_MS = 12 * 60 * 60 * 1000;
+  let groups = {};
+  try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
+    await sock.sendMessage(ownerJid, { text: `⚠️ no pude obtener la lista de grupos: ${e.message}` });
+    return;
+  }
+
+  const pro = [];
+  const trial = [];
+  const orphan = [];
+  for (const [gid, meta] of Object.entries(groups)) {
+    const name = meta?.subject || gid;
+    const size = meta?.participants?.length || 0;
+    if (isGroupApproved(gid)) {
+      pro.push({ gid, name, size });
+    } else {
+      const started = getTrialStart(gid);
+      if (started) {
+        const remaining = TRIAL_MS - (Date.now() - started);
+        trial.push({ gid, name, size, remaining, started });
+      } else {
+        orphan.push({ gid, name, size });
+      }
+    }
+  }
+
+  // Trials huérfanos en DB (bot ya no está en ese grupo)
+  const allTrials = getAllTrials();
+  const liveGids = new Set(Object.keys(groups));
+  const ghostTrials = allTrials.filter(t => !liveGids.has(t.groupId));
+
+  const lines = [];
+  lines.push(`🔱 *REPORTE DEL INFRAMUNDO* ⚔️`);
+  lines.push(`📊 total grupos: *${Object.keys(groups).length}*`);
+  lines.push(`💀 PRO: *${pro.length}*  ⌛ TRIAL: *${trial.length}*  ❓ sin estado: *${orphan.length}*`);
+  lines.push('');
+
+  if (pro.length) {
+    lines.push(`🩸 *MODO PRO* (permanentes)`);
+    pro.forEach((g, i) => {
+      lines.push(`${i + 1}. ${g.name} 👥 ${g.size}`);
+    });
+    lines.push('');
+  }
+
+  if (trial.length) {
+    lines.push(`⌛ *MODO TRIAL* (12h)`);
+    trial.sort((a, b) => a.remaining - b.remaining);
+    trial.forEach((g, i) => {
+      const sinceStart = Math.round((Date.now() - g.started) / 60000);
+      lines.push(`${i + 1}. ${g.name} 👥 ${g.size}`);
+      lines.push(`   ⏳ restan: *${fmtRemaining(g.remaining)}* (lleva ${sinceStart}min)`);
+    });
+    lines.push('');
+  }
+
+  if (orphan.length) {
+    lines.push(`❓ *SIN ESTADO* (revisar)`);
+    orphan.forEach((g, i) => {
+      lines.push(`${i + 1}. ${g.name} 👥 ${g.size}`);
+    });
+    lines.push('');
+  }
+
+  if (ghostTrials.length) {
+    lines.push(`👻 *TRIALS HUÉRFANOS* (bot ya no está)`);
+    ghostTrials.forEach((t, i) => {
+      lines.push(`${i + 1}. ${t.groupId}`);
+    });
+  }
+
+  await sock.sendMessage(ownerJid, { text: lines.join('\n') });
 }
 
 async function fetchBandData(band) {
