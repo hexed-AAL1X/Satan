@@ -27,10 +27,10 @@ const FB = {
   usage: (f) => `⚔️ Uso: ${f.usage}\nEjemplo: ${f.example}`,
   rank_none: (f) => `⚔️ @${f.senderName}, aún no tienes aportes registrados. ¡Comparte algo! 🤘`,
   rank_card: (f) =>
-    `${f.emoji} RANGO DE @${f.senderName}\n\n${f.levelName}\n⚔️ Puntos totales: ${f.points}\n🦇 Strikes: ${f.strikes}/3`,
+    `${f.dataBlock}\n\n☠️ el CIRCLE te observa 🖤`,
   top_empty: () => `☠️ Nadie ha aportado esta semana aún. Sean los primeros. 🤘`,
   top_body: (f) =>
-    `⚔️ RANKING SEMANAL ${f.weekKey}\n\n${f.rawBlock || ''}\n\n💀 se reinicia cada lunes ¿dónde estás tú? 🤘`,
+    `${f.dataBlock}\n\n💀 se reinicia cada lunes ¿dónde estás tú? 🤘`,
   ruleset: () =>
     `📜 REGLAS DEL CIRCLE:\n\n⚔️ 1. Respeta a tus hermanos del metal\n🦇 2. No links de otros grupos de WhatsApp 3 strikes y BAN\n` +
     `☠️ 3. Los APORTADORES son el alma del grupo\n🤘 4. Todo subgénero de metal es bienvenido\n🖤 5. Sin spam sin publicidad\n🔱 6. El bot modera automáticamente no te hagas el vivo`,
@@ -103,10 +103,10 @@ const SCENARIO_HINTS = {
   rank_none:
     'Usuario sin aportes. Anima a compartir música. Menciona @{{senderName}} con arroba. Sin guión.',
   rank_card:
-    'Muestra rango con estos datos EXACTOS sin inventar: emoji={{emoji}} nombre visible @{{senderName}} rango={{levelName}} puntos={{points}} strikes={{strikes}}/3. Formato claro 4 a 7 líneas. Sin guión.',
+    'Escribe UNA frase corta de SATÁN como intro (1 línea, oscura, con emoji). Luego pega EXACTO el bloque de datos que está en facts.dataBlock SIN modificar ninguna línea, emoji, número ni asterisco. Al final puedes añadir 1 frase corta de cierre. Sin guión.',
   top_empty: 'Ranking vacío esta semana. Motiva sin guión.',
   top_body:
-    'Reescribe con voz SATÁN pero conserva PALABRA POR PALABRA números nombres y puntos del bloque de datos que te paso en facts.rawBlock sin cambiar cifras. Sin guión.',
+    'Escribe UNA frase corta de SATÁN como intro (1 línea, oscura). Luego pega EXACTO el bloque de datos que está en facts.dataBlock SIN modificar ninguna línea, emoji, medalla, número ni asterisco. Al final añade 1 frase corta de cierre. Sin guión.',
   ruleset:
     'Reescribe las 6 reglas del CIRCLE que te paso en facts.rulesBlock con mismo significado mismo orden numbering puede variar wording SATÁN. Sin guión. No omitas ninguna regla.',
   help:

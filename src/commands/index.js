@@ -420,21 +420,21 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
 
   if (command === '!rank' || command === '!rango') {
     const user = getUser(senderJid, jid);
-    if (!user) return `⚔️ @${senderName}, aún no tienes aportes en el CIRCLE\n\n🤘 comparte música y empieza a SUBIR de rango ☠️`;
+    if (!user) return await satanGroqMessage('rank_none', { senderName });
     const emoji = getLevelEmoji(user.level);
     const levelName = getLevelName(user.level);
-    return `${emoji} *RANGO DE @${senderName}* ${emoji}\n\n` +
+    const dataBlock = `${emoji} *RANGO DE @${senderName}* ${emoji}\n\n` +
       `🔱 Rango: *${levelName}*\n` +
       `⚔️ Puntos totales: *${user.points}*\n` +
       `🔥 Puntos mensuales: *${user.monthly_points || 0}*\n` +
       `🦇 Strikes: *${user.strikes}/3*\n` +
-      `📅 Racha: *${user.streak || 0} días*\n\n` +
-      `☠️ el CIRCLE te observa 🖤`;
+      `📅 Racha: *${user.streak || 0} días*`;
+    return await satanGroqMessage('rank_card', { senderName, dataBlock });
   }
 
   if (command === '!top' || command === '!ranking') {
     const top = getWeeklyRanking(null, jid);
-    if (!top.length) return `☠️ Nadie ha aportado esta semana aún\n\n🤘 Sean los primeros en OFRECER al CIRCLE ⚔️`;
+    if (!top.length) return await satanGroqMessage('top_empty');
     const medals = ['🥇', '🥈', '🥉'];
     const podium = top.slice(0, 3).map((u, i) =>
       `${medals[i]} *${i + 1}°* ${u.name} ${getLevelEmoji(u.level)} — *${u.weekly_points} pts*`
@@ -442,9 +442,9 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     const rest = top.slice(3).map((u, i) =>
       `  ${i + 4}. ${u.name} ${getLevelEmoji(u.level)} ${u.weekly_points} pts`
     ).join('\n');
-    return `⚔️ *RANKING SEMANAL* ${getWeekKey()} ☠️\n\n` +
-      `${podium}${rest ? '\n\n' + rest : ''}\n\n` +
-      `💀 se reinicia cada lunes ¿dónde estás tú? 🤘`;
+    const dataBlock = `⚔️ *RANKING SEMANAL* ${getWeekKey()} ☠️\n\n` +
+      `${podium}${rest ? '\n\n' + rest : ''}`;
+    return await satanGroqMessage('top_body', { weekKey: getWeekKey(), dataBlock });
   }
 
   if (command === '!ruleset' || command === '!reglas') {
