@@ -147,11 +147,17 @@ Solo el mensaje, sin comillas ni explicaciones.`;
 }
 
 async function sendBotPresentation(sock, jid) {
+  console.log(`[PRESENTACION] generando mensaje para ${jid}`);
   const msg = await generateBotPresentation();
+  console.log(`[PRESENTACION] mensaje listo, enviando a ${jid}`);
   try {
     if (fs.existsSync(SATAN_IMG)) {
       const imgBuffer = fs.readFileSync(SATAN_IMG);
-      await sock.sendMessage(jid, { image: imgBuffer, caption: msg });
+      await Promise.race([
+        sock.sendMessage(jid, { image: imgBuffer, caption: msg }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('send timeout')), 15000)),
+      ]);
+      console.log(`[PRESENTACION] enviado con imagen a ${jid}`);
       return true;
     }
     const { sendWithTyping } = require('../utils/typing');

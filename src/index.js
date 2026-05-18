@@ -158,7 +158,10 @@ async function ensureJoinWelcome(sock, gid, authorJid) {
   // Resolver ownerLid si no se hizo al inicio (puede fallar en startup)
   if (!global._ownerLid) {
     try {
-      const check = await sock.onWhatsApp(OWNER_NUMBER);
+      const check = await Promise.race([
+        sock.onWhatsApp(OWNER_NUMBER),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
       if (check?.[0]?.lid) {
         global._ownerLid = check[0].lid.split('@')[0];
         console.log(`[JOIN-WELCOME] owner LID resuelto tardío: ${global._ownerLid}`);
@@ -210,7 +213,6 @@ async function ensureJoinWelcome(sock, gid, authorJid) {
   clearTrialConsumed(gid);
   markGroupPresentation(gid);
   try {
-    await new Promise((r) => setTimeout(r, 1200));
     const ok = await sendBotPresentation(sock, gid);
     if (!ok) console.error('[JOIN-WELCOME] presentación no confirmada para', gid);
   } catch (e) {
@@ -220,9 +222,9 @@ async function ensureJoinWelcome(sock, gid, authorJid) {
 
 function scheduleJoinWelcomeRetries(sock, gid, authorJid) {
   const auth = authorJid || '';
-  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 2000);
-  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 7500);
-  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 20000);
+  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 1000);
+  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 6000);
+  setTimeout(() => ensureJoinWelcome(sock, gid, auth).catch((e) => console.error('[JOIN-WELCOME]', e.message)), 15000);
 }
 
 async function endTrialAndLeave(sock, gid) {
@@ -416,12 +418,15 @@ async function startBot() {
       }
       // Resolver LID del owner para identificarlo aunque WhatsApp use formato @lid
       try {
-        const ownerCheck = await sock.onWhatsApp(OWNER_NUMBER);
+        const ownerCheck = await Promise.race([
+          sock.onWhatsApp(OWNER_NUMBER),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        ]);
         if (ownerCheck?.[0]?.lid) {
           global._ownerLid = ownerCheck[0].lid.split('@')[0];
           console.log(`\x1b[1;36m👑 Owner LID: ${global._ownerLid}\x1b[0m`);
         }
-      } catch (_) {}
+      } catch (e) { console.warn('[STARTUP] owner LID no resuelto:', e.message); }
 
       try {
         const groups = await sock.groupFetchAllParticipating();
