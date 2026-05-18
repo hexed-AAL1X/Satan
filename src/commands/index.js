@@ -525,6 +525,43 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     return null;
   }
 
+  // --- Owner-only: bajar grupo PRO a trial (inicia contador 12h) ---
+  if (command === '!degradar' || command === '!trial') {
+    if (!isOwner) return null;
+    const { unapproveGroup, startTrial, getTrialStart } = require('../db');
+    const nameQuery = args.join(' ').trim();
+
+    const doDemote = async (gid, groupName) => {
+      unapproveGroup(gid);
+      if (!getTrialStart(gid)) startTrial(gid);
+      const TRIAL_MS = 12 * 60 * 60 * 1000;
+      const started = getTrialStart(gid);
+      const remaining = started ? Math.round((TRIAL_MS - (Date.now() - started)) / 3600000 * 10) / 10 : 12;
+      await sock.sendMessage(senderJid, {
+        text: `⌛ *${groupName}* bajado a TRIAL\nse irá en ~${remaining}h si no se aprueba ☠️`
+      }).catch(() => {});
+    };
+
+    if (!nameQuery && jid.endsWith('@g.us')) {
+      let groupName = jid;
+      try { const meta = await sock.groupMetadata(jid); groupName = meta?.subject || jid; } catch (_) {}
+      await doDemote(jid, groupName);
+      return `⌛ este grupo ahora está en modo TRIAL\ncuenta regresiva de 12h activada ☠️`;
+    }
+
+    if (!nameQuery) return `🔱 uso: *!degradar [nombre del grupo]*`;
+
+    let groups = {};
+    try { groups = await sock.groupFetchAllParticipating(); } catch (e) {
+      return `⚠️ no pude obtener grupos: ${e.message}`;
+    }
+    const q = nameQuery.toLowerCase();
+    const matches = Object.entries(groups).filter(([, m]) => (m?.subject || '').toLowerCase().includes(q));
+    if (!matches.length) return `👁️ no encontré ningún grupo con "${nameQuery}" SEÑOR`;
+    for (const [gid, meta] of matches) await doDemote(gid, meta?.subject || gid);
+    return null;
+  }
+
   // --- Owner-only: expulsar grupo con mensaje comercial de despedida ---
   if (command === '!expulsar' || command === '!kick' || command === '!salir') {
     if (!isOwner) return null;
