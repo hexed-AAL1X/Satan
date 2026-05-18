@@ -70,8 +70,8 @@ const RANKING_POOL = [
 
 const { getState, setState } = require('../db');
 
-function buildRankingMessage(week) {
-  const top = getWeeklyRanking(week);
+function buildRankingMessage(groupId = '', week = null) {
+  const top = getWeeklyRanking(week, groupId);
   if (!top.length) return null;
 
   const lastIdx = parseInt(getState('last_ranking_idx') || '-1');

@@ -28,19 +28,30 @@ const STRIKE_MSGS = {
 };
 
 async function handleGroupLink(sock, msg, jid, senderJid, senderName, groupMetadata) {
-  // Admins pueden mandar lo que quieran
+  // Admins pueden mandar lo que quieran (comparación robusta con LIDs)
+  const senderNum = senderJid?.split('@')[0]?.split(':')[0] || '';
   const isAdmin = (groupMetadata?.participants || [])
-    .some(p => p.id === senderJid && (p.admin === 'admin' || p.admin === 'superadmin'));
+    .some(p => {
+      if (p.admin !== 'admin' && p.admin !== 'superadmin') return false;
+      if (p.id === senderJid) return true;
+      const pNum = p.id?.split('@')[0]?.split(':')[0] || '';
+      if (senderNum && pNum === senderNum) return true;
+      if (p.lid && p.lid === senderJid) return true;
+      return false;
+    });
   if (isAdmin) return false;
 
-  upsertUser(senderJid, senderName);
+  upsertUser(senderJid, senderName, jid);
 
-  // Borrar el mensaje
   try {
     await sock.sendMessage(jid, { delete: msg.key });
   } catch (_) {}
 
-  const strikes = addStrike(senderJid, 'group_link', msg.message?.conversation || '');
+  // Capturar texto del mensaje desde múltiples campos
+  const msgText = msg.message?.conversation ||
+    msg.message?.extendedTextMessage?.text ||
+    msg.message?.imageMessage?.caption || '';
+  const strikes = addStrike(senderJid, 'group_link', msgText, jid);
   const strikeMsg = STRIKE_MSGS[Math.min(strikes, 3)](senderName);
 
   await sendWithTyping(sock, jid, {
@@ -49,9 +60,9 @@ async function handleGroupLink(sock, msg, jid, senderJid, senderName, groupMetad
   });
 
   if (strikes === 2) {
-    muteUser(senderJid, 24);
+    muteUser(senderJid, 24, jid);
   } else if (strikes >= 3) {
-    banUser(senderJid);
+    banUser(senderJid, jid);
     try {
       await sock.groupParticipantsUpdate(jid, [senderJid], 'remove');
     } catch (_) {}

@@ -136,12 +136,13 @@ async function startBot() {
           try { await sock.presenceSubscribe(gid); } catch (_) {}
         }
         // Detectar grupos sin presentación (bot fue añadido durante un reinicio)
+        // IMPORTANTE: marcar ANTES de enviar para evitar spam si hay crash o reintentos
         for (const gid of Object.keys(groups)) {
           if (!hasGroupPresentation(gid)) {
             console.log(`[PRESENTACION-STARTUP] grupo sin presentación detectado: ${gid}`);
+            markGroupPresentation(gid); // marca inmediatamente — no spammear
             await new Promise(r => setTimeout(r, 4000));
             sendBotPresentation(sock, gid)
-              .then(() => markGroupPresentation(gid))
               .catch(e => console.error('[PRESENTACION-STARTUP]', e.message));
             await new Promise(r => setTimeout(r, 2000));
           }
@@ -451,10 +452,15 @@ async function startBot() {
       }
 
       // Owner confirmado o adder desconocido — presentación épica
+      // Marcar ANTES para evitar duplicados ante reintentos
+      if (hasGroupPresentation(update.id)) {
+        console.log(`[PRESENTACION] grupo ${update.id} ya tiene presentación — skip`);
+        return;
+      }
       console.log(`[PRESENTACION] bot agregado al grupo ${update.id}`);
+      markGroupPresentation(update.id);
       await new Promise(r => setTimeout(r, 3000));
       sendBotPresentation(sock, update.id)
-        .then(() => markGroupPresentation(update.id))
         .catch(e => console.error('[PRESENTACION]', e.message));
       return;
     }
@@ -750,7 +756,11 @@ async function startBot() {
           const meta = isGroup ? await sock.groupMetadata(jid).catch(() => null) : null;
           const reply = await handleCommand(sock, jid, senderJid, senderName, text, meta, msg);
           if (reply) {
-            await sendWithTyping(sock, jid, { text: reply, mentions: [senderJid] }, { quoted: msg });
+            if (typeof reply === 'object' && reply.text) {
+              await sendWithTyping(sock, jid, { text: reply.text, mentions: reply.mentions || [senderJid] }, { quoted: msg });
+            } else {
+              await sendWithTyping(sock, jid, { text: reply, mentions: [senderJid] }, { quoted: msg });
+            }
           }
           continue;
         }
@@ -797,7 +807,20 @@ async function startBot() {
 
         // 6. Chat directo o @mención al bot — responde como SATÁN con guía de comandos si aplica
         if (isMentioned && isGroup) {
-          const cleanText = text.replace(/@\S+/g, '').trim().toLowerCase();
+          const cleanText = text.replace(/@\S+/g, '').trim();
+          const lower = cleanText.toLowerCase();
+
+          // Si piden recomendaciones → redirige a !recomienda
+          if (/recomienda|recomendam|recomendá|recomiéndame|recomiendame|recom[ie]nd|suger[ie]nc|suger[ií]|albums?|bandas? (?:de|con|para)/.test(lower)) {
+            const query = cleanText
+              .replace(/^(?:recom[ie]nd[ae]?m?[eé]?|sug[ei]r[eí]nce?m?e?|p[oa]s[aá]m?e?|d[ai]m?e?|busc[ae]m?e?)\s*/i, '')
+              .replace(/^(?:bandas?|albums?|discos?)\s+(?:de|con|para)\s*/i, '')
+              .trim() || 'metal extremo';
+            await sendWithTyping(sock, jid, { text: `🩸 invocando recomendaciones de *${query}* — usa también *!recomienda ${query}* directo ⚔️`, mentions: [senderJid] }, { quoted: msg });
+            const { sendRecommendations } = require('./commands');
+            sendRecommendations(sock, jid, query).catch(() => {});
+            continue;
+          }
 
           // Si piden link/info de una banda específica → redirige a !band
           const bandLinkMatch = cleanText.match(/link[s]? (?:de |del )?(.+)|(?:busca|encuentra|dónde|donde) (?:a |la banda |)(.+)/i);
@@ -811,8 +834,18 @@ async function startBot() {
             }
           }
 
+          // Si piden letra → redirige a !letra
+          const lyricsMatch = cleanText.match(/(?:letra|lyrics)\s+(?:de |of )?(.+)/i);
+          if (lyricsMatch && lyricsMatch[1]) {
+            const song = lyricsMatch[1].trim();
+            await sendWithTyping(sock, jid, { text: `🎤 usa *!letra ${song}* para ver la letra completa ⛧`, mentions: [senderJid] }, { quoted: msg });
+            const { getLyrics } = require('./commands');
+            getLyrics(sock, jid, song).catch(() => {});
+            continue;
+          }
+
           // Si preguntan por comandos/funciones → !help
-          if (/comando[s]?|función|funciones|cómo|como usar|qué hace|que hace|ayuda|help/i.test(cleanText)) {
+          if (/comando[s]?|función|funciones|cómo|como usar|qué hace|que hace|ayuda\b|help\b|menú|menu/i.test(lower)) {
             const helpText = `👁️ *usa !help* para ver todos mis comandos ⚔️\no !band, !album, !recomienda, !trivia, !rank, !top, !streak, !letra 🖤`;
             await sendWithTyping(sock, jid, { text: helpText, mentions: [senderJid] }, { quoted: msg });
             continue;

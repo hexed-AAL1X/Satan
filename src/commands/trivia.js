@@ -169,6 +169,7 @@ async function startMetalQuiz(sock, groupJid) {
     questions,
     currentQ: 0,
     answered: new Set(),
+    correctlyAnswered: new Set(), // set de números de pregunta que ya alguien acertó
     scores: new Map(),
     firstFinisher: null,
   });
@@ -200,8 +201,9 @@ async function checkMetalQuizAnswer(sock, groupJid, senderJid, senderName, text)
   const score = session.scores.get(senderJid);
 
   if (answerIdx === q.answer) {
-    // ¿Es el primero en acertar esta pregunta?
-    const firstThisQ = [...session.answered].filter(k => k.endsWith(':' + session.currentQ)).length === 1;
+    // Primero en acertar = nadie había acertado esta pregunta aún
+    const firstThisQ = !session.correctlyAnswered.has(session.currentQ);
+    session.correctlyAnswered.add(session.currentQ);
 
     score.correct += 1;
     upsertUser(senderJid, senderName, groupJid);

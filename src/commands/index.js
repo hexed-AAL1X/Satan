@@ -314,8 +314,18 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     rawMsgInner?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
     msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
 
+  // Detección robusta de admin: compara por id, por número y por LID
+  const senderNumber = senderJid?.split('@')[0]?.split(':')[0] || '';
   const isAdmin = isOwner || (groupMetadata?.participants || [])
-    .some(p => p.id === senderJid && (p.admin === 'admin' || p.admin === 'superadmin'));
+    .some(p => {
+      if (p.admin !== 'admin' && p.admin !== 'superadmin') return false;
+      if (p.id === senderJid) return true;
+      const pNum = p.id?.split('@')[0]?.split(':')[0] || '';
+      if (senderNumber && pNum === senderNumber) return true;
+      if (p.lid && p.lid === senderJid) return true;
+      if (p.lid && p.lid.split('@')[0] === senderJid?.split('@')[0]) return true;
+      return false;
+    });
 
   if (command === '!rank' || command === '!rango') {
     const user = getUser(senderJid, jid);
@@ -348,7 +358,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       `🏆 *!top* — ranking semanal de aportadores\n` +
       `🔥 *!streak* — tu racha de días aportando\n` +
       `🎵 *!band [nombre]* — info + imagen de una banda\n` +
-      `💿 *!album [nombre]* — portada + info de un álbum\n` +
+      `💿 *!album [álbum] de [banda]* — portada + info\n` +
       `🩸 *!recomienda [género o descripción]* — 3 bandas de culto\n` +
       `🎤 *!letra [canción] por [artista]* — letra + portada\n` +
       `☠️ *!trivia [facil|medio|dificil]* — pregunta de 30s\n` +
@@ -444,7 +454,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
 
   if (command === '!album') {
     const query = args.join(' ');
-    if (!query) return `⚔️ Uso: !album [nombre del álbum]\nEjemplo: !album Reign in Blood`;
+    if (!query) return `⚔️ Uso: !album [nombre del álbum] de [banda]\nEjemplo: !album Reign in Blood de Slayer\nO solo: !album Reign in Blood`;
     getAlbumInfo(sock, jid, query).catch(console.error);
     return null;
   }
@@ -550,7 +560,16 @@ async function getBandInfo(sock, jid, band) {
 async function fetchAlbumData(query) {
   const groq = getGroq();
   if (!groq) return null;
-  const prompt = `Devuelve información sobre el album de metal "${query}" en JSON estricto, sin texto adicional ni markdown. Usa solo comillas dobles, sin apostrofes dentro de los valores:
+  // Parsear "Album X de Banda Y" o "Album X by Banda Y" o "Album X - Banda Y"
+  let albumQuery = query;
+  let bandHint = '';
+  const sep = query.match(/^(.+?)\s+(?:de|by|del|por|-)\s+(.+)$/i);
+  if (sep) { albumQuery = sep[1].trim(); bandHint = sep[2].trim(); }
+  const hintLine = bandHint
+    ? `IMPORTANTE: el album es de la banda "${bandHint}". Si hay varias bandas con un album similar, usa la informacion de ESTA banda especifica.`
+    : '';
+  const prompt = `Devuelve información sobre el album de metal "${albumQuery}"${bandHint ? ` de la banda "${bandHint}"` : ''} en JSON estricto, sin texto adicional ni markdown. ${hintLine}
+Usa solo comillas dobles, sin apostrofes dentro de los valores:
 {"title":"titulo","band":"banda","year":"anno","genre":"genero","label":"sello","tracks":["track1","track2","track3","track4","track5"],"description":"descripcion en 1-2 lineas en espannol sin apostrofes","highlight":"cancion mas iconica del album"}
 Si no existe el album responde: {"error":"not_found"}`;
   const result = await Promise.race([
@@ -598,7 +617,8 @@ async function getAlbumInfo(sock, jid, query) {
     `🔗 YouTube: ${ytLink}\n` +
     `🎧 Spotify: ${spLink}`;
 
-  const imgUrl = await getAlbumArtworkUrl(data.band, data.title);
+  // Buscar la portada — preferentemente con la banda detectada por Groq
+  const imgUrl = await getAlbumArtworkSafe(data.band, data.title, 7000);
 
   try {
     if (imgUrl) {
