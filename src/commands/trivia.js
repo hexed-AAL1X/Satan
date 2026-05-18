@@ -135,7 +135,7 @@ async function checkSingleTriviaAnswer(sock, groupJid, senderJid, senderName, te
     clearTimeout(session.timeout);
     activeSingleTrivia.delete(groupJid);
     await sendWithTyping(sock, groupJid, {
-      text: `⚔️ @${senderName} CORRECTO 🔱\n_${session.explanation || ''}_`,
+      text: `⚔️ @${senderJid.split('@')[0]} CORRECTO 🔱\n_${session.explanation || ''}_`,
       mentions: [senderJid],
     });
   } else {
@@ -215,17 +215,17 @@ async function checkMetalQuizAnswer(sock, groupJid, senderJid, senderName, text)
       addContribution(senderJid, 'trivia_winner', PTS_COMPLETE_BONUS, 'Metal Quiz completado primero', groupJid);
       score.pts += PTS_COMPLETE_BONUS;
       await sendWithTyping(sock, groupJid, {
-        text: `🔱 @${senderName} COMPLETÓ LAS 3 PRIMERO\n+${PTS_COMPLETE_BONUS} pts BONUS total ${score.pts} pts ☠️`,
+        text: `🔱 @${senderJid.split('@')[0]} COMPLETÓ LAS 3 PRIMERO\n+${PTS_COMPLETE_BONUS} pts BONUS total ${score.pts} pts ☠️`,
         mentions: [senderJid],
       });
     } else if (firstThisQ) {
       await sendWithTyping(sock, groupJid, {
-        text: `✅ @${senderName} PRIMERO en acertar +${PTS_FIRST_CORRECT} pts 🤘`,
+        text: `✅ @${senderJid.split('@')[0]} PRIMERO en acertar +${PTS_FIRST_CORRECT} pts 🤘`,
         mentions: [senderJid],
       });
     } else {
       await sendWithTyping(sock, groupJid, {
-        text: `✅ @${senderName} correcto +${PTS_FIRST_CORRECT} pts`,
+        text: `✅ @${senderJid.split('@')[0]} correcto +${PTS_FIRST_CORRECT} pts`,
         mentions: [senderJid],
       });
     }

@@ -890,10 +890,11 @@ async function startBot() {
             const lvl = updateLevel(senderJid, jid);
             if (lvl && lvl.newLevel > lvl.oldLevel) {
               await new Promise(r => setTimeout(r, 2000));
+              const mentionTag = `@${senderJid.split('@')[0]}`;
               const upMsg = [
-                `⚔️ @${senderName} ha ascendido — *${getLevelName(lvl.newLevel)}* 🔱`,
-                `☠️ @${senderName} sube a *${getLevelName(lvl.newLevel)}* 🤘`,
-                `🦇 @${senderName} ahora es *${getLevelName(lvl.newLevel)}* ⛧`,
+                `⚔️ ${mentionTag} ha ascendido — *${getLevelName(lvl.newLevel)}* 🔱`,
+                `☠️ ${mentionTag} sube a *${getLevelName(lvl.newLevel)}* 🤘`,
+                `🦇 ${mentionTag} ahora es *${getLevelName(lvl.newLevel)}* ⛧`,
               ][Math.floor(Math.random() * 3)];
               await sendWithTyping(sock, jid, { text: upMsg, mentions: [senderJid] });
             }
@@ -939,10 +940,11 @@ async function startBot() {
             const lvl = updateLevel(senderJid, jid);
             if (lvl && lvl.newLevel > lvl.oldLevel) {
               await new Promise(r => setTimeout(r, 2000));
+              const mentionTag = `@${senderJid.split('@')[0]}`;
               const upMsg = [
-                `⚔️ @${senderName} ha ascendido — *${getLevelName(lvl.newLevel)}* 🔱`,
-                `☠️ @${senderName} sube a *${getLevelName(lvl.newLevel)}* 🤘`,
-                `🦇 @${senderName} ahora es *${getLevelName(lvl.newLevel)}* ⛧`,
+                `⚔️ ${mentionTag} ha ascendido — *${getLevelName(lvl.newLevel)}* 🔱`,
+                `☠️ ${mentionTag} sube a *${getLevelName(lvl.newLevel)}* 🤘`,
+                `🦇 ${mentionTag} ahora es *${getLevelName(lvl.newLevel)}* ⛧`,
               ][Math.floor(Math.random() * 3)];
               await sendWithTyping(sock, jid, { text: upMsg, mentions: [senderJid] });
             }
@@ -967,10 +969,13 @@ async function startBot() {
           const meta = isGroup ? await sock.groupMetadata(jid).catch(() => null) : null;
           const reply = await handleCommand(sock, jid, senderJid, senderName, text, meta, msg);
           if (reply) {
+            const mentionNum = senderJid.split('@')[0];
             if (typeof reply === 'object' && reply.text) {
-              await sendWithTyping(sock, jid, { text: reply.text, mentions: reply.mentions || [senderJid] }, { quoted: msg });
+              const fixedText = reply.text.replace(new RegExp(`@${senderName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), `@${mentionNum}`);
+              await sendWithTyping(sock, jid, { text: fixedText, mentions: reply.mentions || [senderJid] }, { quoted: msg });
             } else {
-              await sendWithTyping(sock, jid, { text: reply, mentions: [senderJid] }, { quoted: msg });
+              const fixedText = String(reply).replace(new RegExp(`@${senderName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), `@${mentionNum}`);
+              await sendWithTyping(sock, jid, { text: fixedText, mentions: [senderJid] }, { quoted: msg });
             }
           }
           continue;
