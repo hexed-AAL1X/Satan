@@ -199,24 +199,19 @@ async function ensureJoinWelcome(sock, gid, authorJid) {
       return;
     }
     if (!getTrialStart(gid)) startTrial(gid);
-    markGroupPresentation(gid);
-    try {
-      await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_WELCOME) });
-    } catch (err) {
-      console.error('[JOIN-WELCOME-TRIAL]', err.message);
-    }
-    return;
+  } else {
+    approveGroup(gid);
+    endTrial(gid);
+    clearTrialConsumed(gid);
   }
 
-  approveGroup(gid);
-  endTrial(gid);
-  clearTrialConsumed(gid);
+  // Siempre enviar la presentación completa con imagen
   markGroupPresentation(gid);
   try {
     const ok = await sendBotPresentation(sock, gid);
     if (!ok) console.error('[JOIN-WELCOME] presentación no confirmada para', gid);
   } catch (e) {
-    console.error('[JOIN-WELCOME-OWNER]', e.message);
+    console.error('[JOIN-WELCOME-PRESENTATION]', e.message);
   }
 }
 
@@ -463,8 +458,8 @@ async function startBot() {
             if (!hasGroupPresentation(gid)) {
               await new Promise(r => setTimeout(r, 2000));
               try {
-                await sock.sendMessage(gid, { text: pickRandomMsg(TRIAL_WELCOME) });
                 markGroupPresentation(gid);
+                await sendBotPresentation(sock, gid);
               } catch (err) { console.error('[STARTUP-TRIAL]', err.message); }
             }
           } else if (Date.now() - trialStart >= TRIAL_MS) {
