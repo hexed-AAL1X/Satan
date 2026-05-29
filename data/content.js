@@ -154,29 +154,44 @@ const TRIVIA = [
   },
 ];
 
-// Hechos históricos verificados por fecha (MM-DD) — fuente prioritaria antes que Groq
-const ON_THIS_DAY_EVENTS = [
-  { date: '02-15', year: 1982, artist: 'Venom', text: 'Un día como hoy en 1982 Venom publica Black Metal el disco que le puso NOMBRE al subgénero entero ⚔️' },
-  { date: '03-05', year: 1967, artist: 'Chuck Schuldiner', text: 'Un día como hoy en 1967 nace Chuck Schuldiner en California el arquitecto del death metal moderno 💀' },
-  { date: '03-29', year: 1984, artist: 'Sepultura', text: 'Un día como hoy en 1984 los hermanos Cavalera forman Sepultura en Belo Horizonte antes de conquistar el mundo 🤘' },
-  { date: '04-14', year: 2010, artist: 'Peter Steele', text: 'Un día como hoy en 2010 muere Peter Steele vocal de Type O Negative voz grave del metal gótico neoyorquino 🖤' },
-  { date: '04-20', year: 1992, artist: 'Obituary', text: 'Un día como hoy en 1992 Obituary lanza The End Complete referencia del death metal de Florida en plena era dorada ☠️' },
-  { date: '05-16', year: 2010, artist: 'Ronnie James Dio', text: 'Un día como hoy en 2010 muere Ronnie James Dio voz de Rainbow Black Sabbath y Dio el signo de los cuernos nunca muere 🔱' },
-  { date: '05-18', year: 1984, artist: 'Mercyful Fate', text: 'Un día como hoy en 1984 Mercyful Fate lanza Dont Break the Oath álbum maldito del King Diamond noruego ⛧' },
-  { date: '06-11', year: 1984, artist: 'Bathory', text: 'Un día como hoy en 1984 Bathory publica Blood Fire Death puente entre black y viking metal nórdico 🩸' },
-  { date: '06-17', year: 1967, artist: 'Lee Dorian', text: 'Un día como hoy en 1967 nace Lee Dorian fundador de Napalm Death y luego Cathedral una voz clave del death y doom británico 🦇' },
-  { date: '06-18', year: 1987, artist: 'Sodom', text: 'Un día como hoy en 1987 Sodom lanza Persecution Mania thrash teutón en estado puro de la escena alemana ⚔️' },
-  { date: '07-03', year: 1983, artist: 'Metallica', text: 'Un día como hoy en 1983 Metallica publica Kill Em All el manifiesto del thrash bay area que cambió todo 🔥' },
-  { date: '07-31', year: 1985, artist: 'Alissa White-Gluz', text: 'Un día como hoy en 1985 nace Alissa White-Gluz hoy voz de Arch Enemy y referente del metal melódico extremo 🦇' },
-  { date: '08-10', year: 1993, artist: 'Euronymous', text: 'Un día como hoy en 1993 muere Euronymous guitarrista de Mayhem asesinado por Varg Vikernes en Oslo 🩸' },
-  { date: '08-12', year: 1991, artist: 'Carcass', text: 'Un día como hoy en 1991 Carcass publica Necroticism el death grind británico en su forma más quirúrgica 💀' },
-  { date: '09-27', year: 1986, artist: 'Cliff Burton', text: 'Un día como hoy en 1986 muere Cliff Burton bajista de Metallica en un accidente de autobús en Suecia el CIRCLE lo recuerda ⚔️' },
-  { date: '10-13', year: 1990, artist: 'Paradise Lost', text: 'Un día como hoy en 1990 Paradise Lost lanza Gothic disco fundacional del death doom europeo 🖤' },
-  { date: '11-01', year: 1993, artist: 'Cradle of Filth', text: 'Un día como hoy en 1993 Cradle of Filth graba demos que los llevarían al black sinfónico británico más polémico ⛧' },
-  { date: '11-15', year: 1985, artist: 'Possessed', text: 'Un día como hoy en 1985 Possessed publica Seven Churches death metal antes de que existiera el nombre del género 💀' },
-  { date: '12-04', year: 2001, artist: 'Chuck Schuldiner', text: 'Un día como hoy en 2001 muere Chuck Schuldiner a los 34 años el CIRCLE pierde al padre del death metal ☠️' },
-  { date: '12-08', year: 2004, artist: 'Dimebag Darrell', text: 'Un día como hoy en 2004 el metal pierde a Dimebag Darrell asesinado en el escenario una herida que no cierra 🩸' },
-  { date: '12-15', year: 1987, artist: 'Sarcófago', text: 'Un día como hoy en 1987 Sarcófago lanza INRI thrash death primitivo de Belo Horizonte leyenda sudamericana 🤘' },
+// Muertes verificadas (MM-DD) — la IA NO puede inventar ni mover estas fechas
+const METAL_VERIFIED_DEATHS = [
+  { date: '05-24', year: 2010, names: ['paul gray'] },
+  { date: '05-16', year: 2010, names: ['ronnie james dio', 'dio'] },
+  { date: '04-14', year: 2010, names: ['peter steele'] },
+  { date: '08-10', year: 1993, names: ['euronymous', 'øystein aarseth'] },
+  { date: '09-27', year: 1986, names: ['cliff burton'] },
+  { date: '12-04', year: 2001, names: ['chuck schuldiner'] },
+  { date: '12-08', year: 2004, names: ['dimebag darrell', 'dimebag'] },
 ];
 
-module.exports = { ALBUMS, BANDS, CURIOSITIES, SONGS, TRIVIA, ANNIVERSARIES, ON_THIS_DAY_EVENTS };
+// Hechos históricos verificados por fecha (MM-DD) — única fuente para "un día como hoy"
+const ON_THIS_DAY_EVENTS = [
+  { date: '02-15', year: 1982, type: 'release', artist: 'Venom', text: 'Un día como hoy en 1982 Venom publica Black Metal el disco que le puso NOMBRE al subgénero entero ⚔️' },
+  { date: '03-05', year: 1967, type: 'birth', artist: 'Chuck Schuldiner', text: 'Un día como hoy en 1967 nace Chuck Schuldiner en California el arquitecto del death metal moderno 💀' },
+  { date: '03-29', year: 1984, type: 'formed', artist: 'Sepultura', text: 'Un día como hoy en 1984 los hermanos Cavalera forman Sepultura en Belo Horizonte antes de conquistar el mundo 🤘' },
+  { date: '04-14', year: 2010, type: 'death', artist: 'Peter Steele', text: 'Un día como hoy en 2010 muere Peter Steele vocal de Type O Negative voz grave del metal gótico neoyorquino 🖤' },
+  { date: '04-20', year: 1992, type: 'release', artist: 'Obituary', text: 'Un día como hoy en 1992 Obituary lanza The End Complete referencia del death metal de Florida en plena era dorada ☠️' },
+  { date: '05-16', year: 2010, type: 'death', artist: 'Ronnie James Dio', text: 'Un día como hoy en 2010 muere Ronnie James Dio voz de Rainbow Black Sabbath y Dio el signo de los cuernos nunca muere 🔱' },
+  { date: '05-18', year: 1984, type: 'release', artist: 'Mercyful Fate', text: 'Un día como hoy en 1984 Mercyful Fate lanza Dont Break the Oath álbum maldito del King Diamond noruego ⛧' },
+  { date: '05-24', year: 2010, type: 'death', artist: 'Paul Gray', text: 'Un día como hoy en 2010 muere Paul Gray bajista de Slipknot el CIRCLE recuerda al Número 2 ☠️' },
+  { date: '06-11', year: 1984, type: 'release', artist: 'Bathory', text: 'Un día como hoy en 1984 Bathory publica Blood Fire Death puente entre black y viking metal nórdico 🩸' },
+  { date: '06-17', year: 1967, type: 'birth', artist: 'Lee Dorian', text: 'Un día como hoy en 1967 nace Lee Dorian fundador de Napalm Death y luego Cathedral una voz clave del death y doom británico 🦇' },
+  { date: '06-18', year: 1987, type: 'release', artist: 'Sodom', text: 'Un día como hoy en 1987 Sodom lanza Persecution Mania thrash teutón en estado puro de la escena alemana ⚔️' },
+  { date: '07-03', year: 1983, type: 'release', artist: 'Metallica', text: 'Un día como hoy en 1983 Metallica publica Kill Em All el manifiesto del thrash bay area que cambió todo 🔥' },
+  { date: '07-31', year: 1985, type: 'birth', artist: 'Alissa White-Gluz', text: 'Un día como hoy en 1985 nace Alissa White-Gluz hoy voz de Arch Enemy y referente del metal melódico extremo 🦇' },
+  { date: '08-10', year: 1993, type: 'death', artist: 'Euronymous', text: 'Un día como hoy en 1993 muere Euronymous guitarrista de Mayhem asesinado por Varg Vikernes en Oslo 🩸' },
+  { date: '08-12', year: 1991, type: 'release', artist: 'Carcass', text: 'Un día como hoy en 1991 Carcass publica Necroticism el death grind británico en su forma más quirúrgica 💀' },
+  { date: '09-27', year: 1986, type: 'death', artist: 'Cliff Burton', text: 'Un día como hoy en 1986 muere Cliff Burton bajista de Metallica en un accidente de autobús en Suecia el CIRCLE lo recuerda ⚔️' },
+  { date: '10-13', year: 1990, type: 'release', artist: 'Paradise Lost', text: 'Un día como hoy en 1990 Paradise Lost lanza Gothic disco fundacional del death doom europeo 🖤' },
+  { date: '11-01', year: 1993, type: 'other', artist: 'Cradle of Filth', text: 'Un día como hoy en 1993 Cradle of Filth graba demos que los llevarían al black sinfónico británico más polémico ⛧' },
+  { date: '11-15', year: 1985, type: 'release', artist: 'Possessed', text: 'Un día como hoy en 1985 Possessed publica Seven Churches death metal antes de que existiera el nombre del género 💀' },
+  { date: '12-04', year: 2001, type: 'death', artist: 'Chuck Schuldiner', text: 'Un día como hoy en 2001 muere Chuck Schuldiner a los 34 años el CIRCLE pierde al padre del death metal ☠️' },
+  { date: '12-08', year: 2004, type: 'death', artist: 'Dimebag Darrell', text: 'Un día como hoy en 2004 el metal pierde a Dimebag Darrell asesinado en el escenario una herida que no cierra 🩸' },
+  { date: '12-15', year: 1987, type: 'release', artist: 'Sarcófago', text: 'Un día como hoy en 1987 Sarcófago lanza INRI thrash death primitivo de Belo Horizonte leyenda sudamericana 🤘' },
+];
+
+module.exports = {
+  ALBUMS, BANDS, CURIOSITIES, SONGS, TRIVIA, ANNIVERSARIES,
+  ON_THIS_DAY_EVENTS, METAL_VERIFIED_DEATHS,
+};

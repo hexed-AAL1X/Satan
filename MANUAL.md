@@ -160,8 +160,9 @@ Cuando alguien sube de rango, el bot anuncia el ascenso.
 ### On This Day
 
 - **7:00 AM Lun/Mié/Vie** (3× por semana, no diario)
-- Si encuentra algo histórico del metal para esa fecha lo manda con imagen del artista
-- Si no encuentra nada relevante, no manda nada
+- Solo hechos del calendario verificado en `data/content.js` (muertes, lanzamientos, etc. con fecha exacta)
+- **Sin Groq inventando fechas** — si no hay hecho verificado para ese día, no publica nada
+- Si hay evento, lo manda con imagen del artista cuando aplica
 
 ### Contenido diario
 

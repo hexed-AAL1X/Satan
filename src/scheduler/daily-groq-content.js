@@ -1,5 +1,5 @@
 const Groq = require('groq-sdk');
-const { ALBUMS, BANDS, CURIOSITIES, SONGS, ANNIVERSARIES, ON_THIS_DAY_EVENTS } = require('../../data/content');
+const { ALBUMS, BANDS, CURIOSITIES, SONGS, ANNIVERSARIES, ON_THIS_DAY_EVENTS, METAL_VERIFIED_DEATHS } = require('../../data/content');
 const {
   KEYS,
   MAX,
@@ -15,6 +15,14 @@ const {
   looksLikeJsonLeak,
   parseGroqJsonObject,
 } = require('../utils/groq-json');
+const {
+  artistKey,
+  mmddKey,
+  validateOnThisDayAccuracy,
+  buildArtistExactDates,
+} = require('../utils/metal-dates-verify');
+
+const ARTIST_EXACT_DATES = buildArtistExactDates(METAL_VERIFIED_DEATHS, ON_THIS_DAY_EVENTS);
 
 const MEGA_BANNED =
   'Mayhem, Darkthrone, Burzum, Metallica, Slayer, Iron Maiden, Black Sabbath, Death, ' +
@@ -22,6 +30,7 @@ const MEGA_BANNED =
   'Tool, Rammstein, Nightwish, Pantera, Megadeth, Anthrax, Judas Priest, Motörhead';
 
 let groqClient = null;
+
 function getGroq() {
   if (!process.env.GROQ_API_KEY) return null;
   if (!groqClient) groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -30,31 +39,6 @@ function getGroq() {
 
 function parseJsonObject(raw) {
   return parseGroqJsonObject(raw);
-}
-
-const ONTHISDAY_GROQ_BANNED =
-  `${MEGA_BANNED}, Dio, Ronnie James Dio, Ozzy Osbourne, Lemmy, Cliff Burton, Dimebag Darrell, ` +
-  'Chuck Schuldiner, Peter Steele, Euronymous, Metallica, Iron Maiden, Black Sabbath';
-
-/** Solo en la fecha real del hecho (evita que Groq meta Dio todos los días). */
-const ARTIST_EXACT_DATES = {
-  dio: '05-16',
-  'ronnie james': '05-16',
-  'ronnie james dio': '05-16',
-  'cliff burton': '09-27',
-  dimebag: '12-08',
-  'dimebag darrell': '12-08',
-  'chuck schuldiner': '12-04',
-  'peter steele': '04-14',
-  euronymous: '08-10',
-};
-
-function artistKey(name) {
-  return String(name || '').toLowerCase().replace(/[^a-z0-9áéíóúñü\s]/gi, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function mmddKey(month, day) {
-  return `${month}-${day}`;
 }
 
 function isArtistAllowedOnDate(artist, month, day) {
@@ -104,6 +88,9 @@ function sanitizeOnThisDayEntry(entry, month, day) {
   const artist = entry.artist ? String(entry.artist).trim() : null;
   if (artist && !isArtistAllowedOnDate(artist, month, day)) return null;
   if (artist && wasArtistUsedRecently(artist)) return null;
+  if (!validateOnThisDayAccuracy(text, artist, month, day, METAL_VERIFIED_DEATHS, ON_THIS_DAY_EVENTS)) {
+    return null;
+  }
 
   return {
     text,
@@ -132,17 +119,15 @@ function pickCuratedOnThisDay(month, day) {
   return null;
 }
 
-function getOnThisDayFallback(month, day) {
+function getAnniversaryOnThisDay(month, day) {
   const mmdd = mmddKey(month, day);
   const ann = ANNIVERSARIES.find((a) => a.date === mmdd);
-  if (ann && !wasArtistUsedRecently(ann.band)) {
-    return {
-      text: `Un día como hoy en ${ann.year} el CIRCLE recuerda el lanzamiento de ${ann.title} de ${ann.band} ☠️`,
-      artist: ann.band,
-      hook: `${ann.band} ${ann.title} ${mmdd}`,
-    };
-  }
-  return pickCuratedOnThisDay(month, day);
+  if (!ann || wasArtistUsedRecently(ann.band)) return null;
+  return {
+    text: `Un día como hoy en ${ann.year} el CIRCLE recuerda el lanzamiento de ${ann.title} de ${ann.band} ☠️`,
+    artist: ann.band,
+    hook: `${ann.band} ${ann.title} ${mmdd}`,
+  };
 }
 
 async function groqJson(prompt, maxTokens = 320, temperature = 0.95) {
@@ -301,7 +286,7 @@ JSON: {"title":"canción","band":"banda","fact":"dato en español"}`
   return song;
 }
 
-/** Un día como hoy — hecho verificable; Groq solo si no hay curated y con validación estricta. */
+/** Un día como hoy — SOLO hechos verificados en DB (sin Groq: cero alucinaciones de fechas). */
 async function getDailyOnThisDay(month, day) {
   const cached = getDayCache('onthisday');
   const cachedClean = sanitizeOnThisDayEntry(cached, month, day);
@@ -309,43 +294,8 @@ async function getDailyOnThisDay(month, day) {
   if (cached) clearDayCache('onthisday');
 
   let result = pickCuratedOnThisDay(month, day);
-
   if (!result) {
-    const monthNames = [
-      'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-      'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
-    ];
-    const monthName = monthNames[parseInt(month, 10) - 1] || month;
-    const exclude = exclusionBlock(KEYS.onthisday, 'Hechos ya narrados (NO repetir artista ni historia)', 40);
-
-    for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
-      const data = await groqJson(
-        `Eres SATÁN. Hoy es EXACTAMENTE ${day} de ${monthName} (solo esa fecha, sin ± días).
-Busca UN hecho histórico REAL y VERIFICABLE del metal/rock pesado ocurrido ESE DÍA y ESE MES en algún año concreto.
-Debe incluir año de 4 dígitos, artista o banda real, y tipo de hecho (lanzamiento, muerte, debut, concierto, formación).
-PROHIBIDO inventar fechas. PROHIBIDO artistas genéricos tipo "un ídolo" o "leyenda".
-PROHIBIDO estos artistas salvo que sea su fecha real documentada: ${ONTHISDAY_GROQ_BANNED}.${exclude}
-JSON válido únicamente:
-{"text":"2 líneas con año y nombre concreto estilo SATÁN","artist":"artista o banda","year":"año numérico","hook":"artista + año + tipo de hecho corto"}`,
-        380,
-        0.55
-      );
-
-      const candidate = sanitizeOnThisDayEntry(
-        data?.text ? {
-          text: data.text,
-          artist: data.artist,
-          hook: data.hook || `${data.artist || ''} ${data.year || ''}`.trim(),
-        } : null,
-        month,
-        day
-      );
-      if (candidate) result = candidate;
-    }
-  }
-
-  if (!result) {
-    result = sanitizeOnThisDayEntry(getOnThisDayFallback(month, day), month, day);
+    result = sanitizeOnThisDayEntry(getAnniversaryOnThisDay(month, day), month, day);
   }
 
   if (result) {
