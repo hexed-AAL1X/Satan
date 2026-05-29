@@ -1,8 +1,9 @@
+const Groq = require('groq-sdk');
 const { groqWithRetry, hasGroqKey, GROQ_UNAVAILABLE_MSG } = require('../utils/groq-retry');
 
 let groqClient = null;
 function getGroq() {
-  if (!process.env.GROQ_API_KEY) return null;
+  if (!hasGroqKey()) return null;
   if (!groqClient) groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
   return groqClient;
 }
