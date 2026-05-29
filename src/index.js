@@ -20,7 +20,7 @@ const { saveSticker, sendWelcomeStickers, sendMorningStickers, getStickerFiles }
 const { hasGroupLink, handleGroupLink } = require('./moderation/links');
 const { detectAndRegisterContribution, registerAlbumSession, shouldReact, shouldReactAudio, classifyMedia } = require('./contributions/detect');
 const { handleChatMessage, handleCommand, saveMemeFromMsg, handlePendingMenu } = require('./commands');
-const { checkTriviaAnswer } = require('./commands/trivia');
+const { pickReaction } = require('./utils/reaction-emojis');
 const { setupScheduler, updateLastMessage, registerBattleVote, registerPollVote, onBattlePollVote, getBattlePollKey, hasBattle } = require('./scheduler');
 const { getStoredMessage, getPollUpdateContent } = require('./scheduler/battle-polls');
 const { sendWithTyping } = require('./utils/typing');
@@ -849,8 +849,7 @@ async function startBot() {
       );
 
       try {
-        const REACTION_EMOJIS = ['🤘', '🔥', '☠️', '💀', '🖤', '⚔️', '🦇', '🫀'];
-        const randomReaction = () => REACTION_EMOJIS[Math.floor(Math.random() * REACTION_EMOJIS.length)];
+        const randomReaction = () => pickReaction('music');
 
         // 1a. Aporte por imagen/archivo — sesión de álbum (5 pts, solo si es música real)
         if (isGroup && isMedia) {
@@ -870,9 +869,7 @@ async function startBot() {
           const doReact = (kind === 'music' && (isImage || shouldReactAudio(senderJid, jid))) || looksLikeMeme;
           if (doReact) {
             const delay = 1500 + Math.random() * 5000;
-            const emoji = looksLikeMeme
-              ? ['😂', '💀', '🤣', '😈'][Math.floor(Math.random() * 4)]
-              : randomReaction();
+            const emoji = looksLikeMeme ? pickReaction('meme') : randomReaction();
             setTimeout(async () => {
               try {
                 console.log(`[REACCIÓN] ${senderName} → ${emoji}${looksLikeMeme ? ' (meme)' : ''}`);
@@ -1036,11 +1033,11 @@ async function startBot() {
             const isThanks = /gracias|thanks|crack|genio|bien hecho|buenísimo|love|amo|grande|capo/.test(t);
 
             let emoji;
-            if (isInsult) emoji = ['😈', '⛧', '☠️'][Math.floor(Math.random() * 3)];
-            else if (isFunny) emoji = ['😂', '💀', '🤣'][Math.floor(Math.random() * 3)];
-            else if (isThanks) emoji = ['🤘', '🖤', '🔥'][Math.floor(Math.random() * 3)];
-            else if (/\?/.test(t)) emoji = ['👁️', '⚔️', '🔱'][Math.floor(Math.random() * 3)];
-            else emoji = ['🤘', '☠️', '🖤', '🔥', '⛧', '💀'][Math.floor(Math.random() * 6)];
+            if (isInsult) emoji = pickReaction('insult');
+            else if (isFunny) emoji = pickReaction('funny');
+            else if (isThanks) emoji = pickReaction('thanks');
+            else if (/\?/.test(t)) emoji = pickReaction('question');
+            else emoji = pickReaction('default');
 
             // Siempre reacciona con emoji
             const reactionDelay = 1500 + Math.random() * 3000;
