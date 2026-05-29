@@ -1,40 +1,9 @@
 const path = require('path');
 const fs = require('fs');
 const Groq = require('groq-sdk');
-const { getState, setState } = require('../db');
+const { groqWithRetry, hasGroqKey, GROQ_UNAVAILABLE_MSG } = require('../utils/groq-retry');
 
 const SATAN_IMG = path.join(__dirname, '../../data/satan_presentacion.png');
-
-const FALLBACK_POOL = [
-  // B
-  `SATÁN 👁️ te vio llegar @{name}\nel CIRCLE el fuego y la música te esperan\nbienvenido al fuego que no se apaga ☠️🤘`,
-
-  // 2
-  `@{name} bienvenido al INNER CIRCLE 🦇\naquí la oscuridad y el caos reinan\ntu alma ya pertenece a esto ⚔️💀`,
-
-  // 3
-  `bienvenido @{name} al CAOS 🩸\naquí la energía es BRUTAL y la música no tiene piedad\nprepárate ⚔️☠️`,
-
-  // 6
-  `bienvenido @{name} ☠️\nlee las reglas y entra al INFIERNO\nel CIRCLE ya te anotó 🦇💀`,
-
-  // mezclas
-  `@{name} entró 👁️\nesto no es un grupo de amigos es un CULTO\nel CIRCLE te observa aporta o desaparece ☠️⚔️`,
-
-  `SATÁN ☠️ recibe a @{name}\nel inframundo tiene hambre de más MÚSICA 🩸\nbienvenido si tienes el estómago para esto ⚔️`,
-
-  `@{name} 🦇 cruzó las puertas\nel metal aquí no se escucha se DEVORA\nbienvenido al abismo ☠️👁️`,
-
-  `otro MORTAL llega — @{name} ⚔️\nel INNER CIRCLE no espera testigos espera participantes\ndeja huella o el inframundo te ignora 💀☠️`,
-
-  `bienvenido al CIRCLE @{name} 🔱\nel fuego aquí no es decoración es lo que SOMOS\nabre la boca y aporta 🖤⚔️`,
-
-  `@{name} 🩸 ya estás adentro\nesto es para los que sienten la música en los HUESOS\nel caos te da la bienvenida ☠️🤘`,
-
-  `SATÁN 👁️ te tiene en el radar @{name}\neste lugar es para los que el metal les QUEMÓ el alma\nbienvenido al fuego eterno 💀⛧`,
-
-  `@{name} entró al CIRCLE ☠️\naquí la mediocridad no existe solo los que viven esto de verdad\nbienvenido GUERRERO 🤘🩸`,
-];
 
 const ALL_EMOJIS = ['☠️', '⚔️', '🦇', '💀', '👁️', '🩸', '⛧', '🤘', '🔱', '🖤'];
 
@@ -68,7 +37,7 @@ REGLAS ESTRICTAS:
 
 let groqClient = null;
 function getGroq() {
-  if (!process.env.GROQ_API_KEY) return null;
+  if (!hasGroqKey()) return null;
   if (!groqClient) groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
   return groqClient;
 }
@@ -76,47 +45,32 @@ function getGroq() {
 async function generateWelcomeWithAI(name, adderName) {
   const groq = getGroq();
   if (!groq) return null;
-  const result = await Promise.race([
-    groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: PROMPT(name, adderName) }],
-      temperature: 1.1,
-      max_tokens: 200,
-    }),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
-  ]);
-  return result.choices[0]?.message?.content?.trim() || null;
-}
 
-function getFallbackMessage(name) {
-  const lastIdx = parseInt(getState('last_welcome_idx') || '-1');
-  const candidates = FALLBACK_POOL.map((_, i) => i).filter(i => i !== lastIdx);
-  const idx = candidates[Math.floor(Math.random() * candidates.length)];
-  setState('last_welcome_idx', idx);
-  return FALLBACK_POOL[idx].replace(/{name}/g, name);
+  return groqWithRetry(async () => {
+    const result = await Promise.race([
+      groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: PROMPT(name, adderName) }],
+        temperature: 1.1,
+        max_tokens: 200,
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),
+    ]);
+    const msg = result.choices[0]?.message?.content?.trim();
+    if (!msg || msg.length < 8) throw new Error('respuesta vacía');
+    return msg;
+  }, { attempts: 4, label: 'WELCOME' });
 }
 
 async function getWelcomeMessage(name, adderName = null) {
-  try {
-    const aiMsg = await generateWelcomeWithAI(name, adderName);
-    if (aiMsg) return aiMsg;
-  } catch (err) {
-    console.error('[WELCOME AI ERROR]', err.message);
-  }
-  return getFallbackMessage(name);
+  const aiMsg = await generateWelcomeWithAI(name, adderName);
+  if (aiMsg) return aiMsg;
+  return `☠️ @${name} entró al CIRCLE 👁️\n${GROQ_UNAVAILABLE_MSG}`;
 }
 
-// --- Presentación del bot al unirse a un nuevo grupo ---
-const PRESENTATION_FALLBACK = [
-  `el INFIERNO se abrió y yo emergí de sus llamas ☠️\nsoy SATÁN señor de este CIRCLE desde ahora 👁️\nvigilo los aportes y las reglas con mis ojos en cada rincón ⛧\nel que falle tiene un DESTINO en las sombras 💀\nusa *!rank* para ver tu posición y *!ruleset* para sobrevivir 🔱\nel METAL no se pide 🖤 se IMPONE ⚔️`,
-  `las cadenas del inframundo se rompieron 🩸\nyo SOY la oscuridad que este CIRCLE necesita 🦇\nmis OJOS vigilan los aportes y cada movimiento aquí ⛧\nlos dignos SUBIRÁN de rango 🤘 los débiles serán devorados ☠️\n*!rank* para ver tu posición 👁️ *!ruleset* para conocer las REGLAS 💀\nbienvenidos al INFRAMUNDO 🖤 ⚔️`,
-];
-
 async function generateBotPresentation() {
-  const groq = (() => {
-    try { return new Groq({ apiKey: process.env.GROQ_API_KEY }); } catch { return null; }
-  })();
-  if (!groq) return PRESENTATION_FALLBACK[Math.floor(Math.random() * PRESENTATION_FALLBACK.length)];
+  const groq = getGroq();
+  if (!groq) return null;
 
   const emojis = pickEmojis(4);
   const prompt = `Eres SATÁN señor del inframundo. Acabas de aparecer en un grupo de metal de WhatsApp por primera vez como si hubieras emergido del fuego. Escribe tu presentación.
@@ -130,7 +84,7 @@ REGLAS ABSOLUTAS:
 - tono oscuro agresivo como nacido del infierno mismo
 Solo el mensaje, sin comillas ni explicaciones.`;
 
-  try {
+  return groqWithRetry(async () => {
     const r = await Promise.race([
       groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
@@ -138,26 +92,24 @@ Solo el mensaje, sin comillas ni explicaciones.`;
         temperature: 1.1,
         max_tokens: 160,
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),
     ]);
     const msg = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
-    if (msg) return msg;
-  } catch (e) { console.warn('[PRESENTACION] Groq falló, usando fallback:', e.message); }
-  return PRESENTATION_FALLBACK[Math.floor(Math.random() * PRESENTATION_FALLBACK.length)];
+    if (!msg || msg.length < 20) throw new Error('respuesta vacía');
+    return msg;
+  }, { attempts: 4, label: 'PRESENTACION' });
 }
 
 async function sendBotPresentation(sock, jid) {
   console.log(`[PRESENT] inicio ${jid}`);
 
-  // 1. Texto: fallback instantáneo, intentar Groq en background
-  let msg = PRESENTATION_FALLBACK[Math.floor(Math.random() * PRESENTATION_FALLBACK.length)];
-  try {
-    const aiMsg = await generateBotPresentation();
-    if (aiMsg) msg = aiMsg;
-  } catch (_) {}
+  const msg = await generateBotPresentation();
+  if (!msg) {
+    console.warn('[PRESENT] Groq no respondió — omitiendo presentación');
+    return false;
+  }
   console.log(`[PRESENT] texto OK (${msg.length} chars)`);
 
-  // 2. Enviar: intentar imagen, si falla enviar solo texto
   try {
     if (fs.existsSync(SATAN_IMG)) {
       console.log(`[PRESENT] enviando imagen+caption...`);
@@ -169,7 +121,6 @@ async function sendBotPresentation(sock, jid) {
     console.error(`[PRESENT] imagen falló: ${e.message}`);
   }
 
-  // 3. Fallback texto puro
   try {
     console.log(`[PRESENT] enviando solo texto...`);
     await sock.sendMessage(jid, { text: msg });

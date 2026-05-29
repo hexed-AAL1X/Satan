@@ -1,4 +1,4 @@
-const Groq = require('groq-sdk');
+const { groqWithRetry, hasGroqKey, GROQ_UNAVAILABLE_MSG } = require('../utils/groq-retry');
 
 let groqClient = null;
 function getGroq() {
@@ -191,9 +191,28 @@ function getRulesetMessage() {
  * @param {Record<string, string|number>} facts
  */
 async function satanGroqMessage(scenario, facts = {}) {
-  const fb = FB[scenario] ? FB[scenario](facts) : '☠️ el CIRCLE observa ⚔️';
+  const fb = FB[scenario] ? FB[scenario](facts) : GROQ_UNAVAILABLE_MSG;
+
+  // Escenarios con bloque fijo obligatorio — Groq solo envuelve si puede
+  const fixedBlockScenarios = {
+    help: () => facts.helpBlock || fb,
+    rank_card: () => facts.dataBlock || fb,
+    top_body: () => facts.dataBlock || fb,
+    owner_help: () => facts.panelBlock || fb,
+    owner_menu_list: () => facts.rawBlock || fb,
+    groups_report: () => facts.rawBlock || fb,
+  };
+
+  if (!hasGroqKey()) {
+    if (fixedBlockScenarios[scenario]) return fixedBlockScenarios[scenario]();
+    return GROQ_UNAVAILABLE_MSG;
+  }
+
   const groq = getGroq();
-  if (!groq) return fb;
+  if (!groq) {
+    if (fixedBlockScenarios[scenario]) return fixedBlockScenarios[scenario]();
+    return GROQ_UNAVAILABLE_MSG;
+  }
 
   let hint = SCENARIO_HINTS[scenario] || 'Mensaje corto SATÁN según facts JSON.';
   if (typeof hint === 'string') hint = interpolate(hint, facts);
@@ -206,7 +225,7 @@ Responde SOLO JSON: {"text":"tu mensaje aquí con saltos de línea reales como \
 
   const user = `Escenario: ${scenario}\nInstrucción: ${hint}\nDatos hechos (no inventes otros): ${factsJson}`;
 
-  try {
+  const text = await groqWithRetry(async () => {
     const result = await Promise.race([
       groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
@@ -222,23 +241,24 @@ Responde SOLO JSON: {"text":"tu mensaje aquí con saltos de línea reales como \
           : 400,
         response_format: { type: 'json_object' },
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),
     ]);
     const raw = result.choices[0]?.message?.content?.trim() || '';
-    let text = '';
+    let out = '';
     try {
-      text = JSON.parse(raw).text?.trim() || '';
+      out = JSON.parse(raw).text?.trim() || '';
     } catch (_) {
       const m = raw.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-      text = m ? JSON.parse(`"${m[1]}"`) : '';
+      out = m ? JSON.parse(`"${m[1]}"`) : '';
     }
-    text = stripDashes(text).replace(/\\n/g, '\n');
-    if (!text || text.length < 4) return fb;
-    return text;
-  } catch (e) {
-    if (!String(e.message || e).includes('timeout')) console.error('[GROQ-COPY]', scenario, (e.message || '').slice(0, 80));
-    return fb;
-  }
+    out = stripDashes(out).replace(/\\n/g, '\n');
+    if (!out || out.length < 4) throw new Error('texto vacío');
+    return out;
+  }, { attempts: 4, label: `GROQ-COPY:${scenario}` });
+
+  if (text) return text;
+  if (fixedBlockScenarios[scenario]) return fixedBlockScenarios[scenario]();
+  return GROQ_UNAVAILABLE_MSG;
 }
 
 /** Mismo texto que !help (Groq + bloque de respaldo idéntico). */

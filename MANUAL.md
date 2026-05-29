@@ -245,8 +245,8 @@ Todas las funciones automáticas se envían a **todos los grupos donde el bot es
 - **+5 pts** por cada respuesta correcta
 - **+15 pts bonus** al primero que conteste las 3 correctamente
 - Viernes 19:30 con dificultad aleatoria; manual: `!metalquiz [facil|medio|dificil]`
-- Historial anti-repetición — no vuelve a sacar la misma pregunta pronto
-- Si Groq falla, usa banco estático de respaldo (10 preguntas)
+- **Solo Groq** — sin banco estático; si la IA no responde, no inicia la ronda
+- Acepta respuestas `A`, `B`, `C` también como `B?`, `b)`, `opción B`, etc.
 
 ### Comportamiento
 
@@ -310,7 +310,7 @@ Tablas principales:
 - `users` — usuarios por grupo con puntos, rangos, strikes, racha
 - `contributions` — historial de aportes
 - `strikes` — historial de strikes
-- `trivia` / `metalquiz` — Groq por dificultad; respaldo estático si falla la IA
+- `trivia` / `metalquiz` — solo Groq; contenido diario e inactividad igual
 - `bot_state` — estado interno (índices usados, grupos con presentación, etc.)
 
 ---

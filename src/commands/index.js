@@ -32,6 +32,7 @@ function getGroq() {
 const recentlyRecommended = new Set();
 
 const { isForbiddenNonCircleGenre } = require('../utils/circle-genre-guard');
+const { groqWithRetry, hasGroqKey, GROQ_UNAVAILABLE_MSG } = require('../utils/groq-retry');
 const { satanGroqMessage, FB, getRulesetMessage } = require('../handlers/groq-satan-copy');
 
 function getMessageContextInfo(msg) {
@@ -195,7 +196,7 @@ Responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin markdown:
   {"band":"...","country":"...","album":"...","year":"...","why":"..."}
 ]`;
 
-  try {
+  return groqWithRetry(async () => {
     const result = await Promise.race([
       groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
@@ -203,21 +204,19 @@ Responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin markdown:
         temperature: 1.05,
         max_tokens: 450,
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000)),
     ]);
     const raw = result.choices[0]?.message?.content?.trim();
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return null;
+    if (!jsonMatch) throw new Error('json vacío');
     const bands = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(bands) || bands.length < 1) throw new Error('sin bandas');
     bands.forEach(b => {
       recentlyRecommended.add(b.band);
       remember(KEYS.reco, b.band, 150);
     });
     return bands;
-  } catch (e) {
-    console.error('[RECOMIENDA]', e.message?.slice(0, 60));
-    return null;
-  }
+  }, { attempts: 4, label: 'RECOMIENDA' });
 }
 
 // Delegamos al módulo centralizado de imágenes
@@ -227,36 +226,30 @@ const getBandArtistImageUrl = (band) => getBandImageSafe(band, 8000);
 async function getSatanLine(prompt) {
   const groq = getGroq();
   if (!groq) return null;
-  try {
+  return groqWithRetry(async () => {
     const r = await Promise.race([
       groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 1.1, max_tokens: 60,
+        temperature: 1.1,
+        max_tokens: 60,
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('t')), 5000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
     ]);
-    const line = r.choices[0]?.message?.content?.trim() || null;
-    // strip dashes regardless of what groq outputs
-    return line ? line.replace(/\s*[—–-]+\s*/g, ' ').trim() : null;
-  } catch { return null; }
+    const line = r.choices[0]?.message?.content?.trim();
+    if (!line) throw new Error('respuesta vacía');
+    return line.replace(/\s*[—–-]+\s*/g, ' ').trim();
+  }, { attempts: 4, label: 'SATAN-LINE' });
 }
-
-const INTRO_FALLBACK = [
-  `👁️ el CIRCLE busca en las sombras ⚔️\nesto es lo que pocos escuchan 🖤`,
-  `🩸 hay bandas que merecen ser conocidas\nel CIRCLE las trae hoy ⚔️`,
-  `☠️ más allá de lo comercial\nexisten sonidos que muy pocos han oído 🖤`,
-];
-const OUTRO_FALLBACK = [
-  `🤘 ¿las conocen? si tienes más aporta al grupo ☠️`,
-  `🖤 el CIRCLE siempre busca más\naporta si conoces otras ⚔️`,
-  `☠️ estas son para los que van más allá\n¿alguna la conoces? 🤘`,
-];
 
 async function sendRecommendations(sock, jid, genre) {
   const gRaw = (genre || '').trim();
   if (isForbiddenNonCircleGenre(gRaw)) {
     await sendWithTyping(sock, jid, await satanGroqMessage('genre_reject'));
+    return;
+  }
+  if (!hasGroqKey()) {
+    await sendWithTyping(sock, jid, GROQ_UNAVAILABLE_MSG);
     return;
   }
   const bands = await getUndergroundRecommendations(gRaw || 'metal extremo');
@@ -265,14 +258,12 @@ async function sendRecommendations(sock, jid, genre) {
     return;
   }
 
-  const introExamples = [
-    'esto es lo que POCOS escuchan 🖤',
-    'el CIRCLE trae lo que el mainstream oculta ☠️',
-    'ESCUCHA bien esto 👁️',
-    'hay MÚSICA que merece ser conocida ⚔️',
-  ];
-  const introPrompt = `Eres SATÁN hablando a un grupo de metal. Escribe exactamente 1 frase muy corta (5-8 palabras) en español, oscura y directa, diciendo que vas a mostrar bandas. Imita este estilo: "${introExamples[Math.floor(Math.random()*introExamples.length)]}". Una palabra en MAYÚSCULAS. 1 emoji de: ☠️ ⚔️ 🖤 🤘 👁️. Responde SOLO la frase, nada más.`;
-  const intro = await getSatanLine(introPrompt) || INTRO_FALLBACK[Math.floor(Math.random() * INTRO_FALLBACK.length)];
+  const introPrompt = `Eres SATÁN hablando a un grupo de metal. Escribe exactamente 1 frase muy corta (5-8 palabras) en español, oscura y directa, diciendo que vas a mostrar bandas. Una palabra en MAYÚSCULAS. 1 emoji de: ☠️ ⚔️ 🖤 🤘 👁️. Responde SOLO la frase, nada más.`;
+  const intro = await getSatanLine(introPrompt);
+  if (!intro) {
+    await sendWithTyping(sock, jid, GROQ_UNAVAILABLE_MSG);
+    return;
+  }
   await sendWithTyping(sock, jid, intro);
 
   for (const b of bands) {
@@ -293,14 +284,9 @@ async function sendRecommendations(sock, jid, genre) {
   }
 
   await new Promise(r => setTimeout(r, 800));
-  const outroExamples = [
-    '¿las conocen? APORTA lo tuyo 🤘',
-    'el CIRCLE siempre quiere más ☠️',
-    '¿alguna la conoces? APORTA 🖤',
-  ];
-  const outroPrompt = `Eres SATÁN hablando a un grupo de metal. Escribe exactamente 1 frase muy corta (5-8 palabras) invitando a que aporten más bandas. Imita este estilo: "${outroExamples[Math.floor(Math.random()*outroExamples.length)]}". Una palabra en MAYÚSCULAS. 1 emoji de: 🤘 ☠️ 🖤. Responde SOLO la frase, nada más.`;
-  const outro = await getSatanLine(outroPrompt) || OUTRO_FALLBACK[Math.floor(Math.random() * OUTRO_FALLBACK.length)];
-  await sendWithTyping(sock, jid, outro);
+  const outroPrompt = `Eres SATÁN hablando a un grupo de metal. Escribe exactamente 1 frase muy corta (5-8 palabras) invitando a que aporten más bandas. Una palabra en MAYÚSCULAS. 1 emoji de: 🤘 ☠️ 🖤. Responde SOLO la frase, nada más.`;
+  const outro = await getSatanLine(outroPrompt);
+  if (outro) await sendWithTyping(sock, jid, outro);
 }
 
 const LEVEL_NAMES = ['', 'Recruit', 'Headbanger', 'Berserker', 'Deathbringer', 'Overlord'];

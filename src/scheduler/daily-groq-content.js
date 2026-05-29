@@ -1,5 +1,5 @@
 const Groq = require('groq-sdk');
-const { ALBUMS, BANDS, CURIOSITIES, SONGS, ANNIVERSARIES, ON_THIS_DAY_EVENTS, METAL_VERIFIED_DEATHS } = require('../../data/content');
+const { ANNIVERSARIES, ON_THIS_DAY_EVENTS, METAL_VERIFIED_DEATHS } = require('../../data/content');
 const {
   KEYS,
   MAX,
@@ -21,6 +21,7 @@ const {
   validateOnThisDayAccuracy,
   buildArtistExactDates,
 } = require('../utils/metal-dates-verify');
+const { groqWithRetry, hasGroqKey } = require('../utils/groq-retry');
 
 const ARTIST_EXACT_DATES = buildArtistExactDates(METAL_VERIFIED_DEATHS, ON_THIS_DAY_EVENTS);
 
@@ -131,9 +132,11 @@ function getAnniversaryOnThisDay(month, day) {
 }
 
 async function groqJson(prompt, maxTokens = 320, temperature = 0.95) {
+  if (!hasGroqKey()) return null;
   const groq = getGroq();
   if (!groq) return null;
-  try {
+
+  return groqWithRetry(async () => {
     const result = await Promise.race([
       groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
@@ -142,29 +145,12 @@ async function groqJson(prompt, maxTokens = 320, temperature = 0.95) {
         max_tokens: maxTokens,
         response_format: { type: 'json_object' },
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000)),
     ]);
-    return parseJsonObject(result.choices[0]?.message?.content?.trim() || '');
-  } catch (e) {
-    if (!String(e.message || e).includes('timeout')) {
-      console.error('[DAILY-GROQ]', (e.message || '').slice(0, 70));
-    }
-    return null;
-  }
-}
-
-function pickStaticFallback(arr, histKey, mapRemember, maxSize = 80) {
-  const used = new Set(loadList(histKey).map((x) => String(x).toLowerCase()));
-  const shuffled = [...arr].sort(() => Math.random() - 0.5);
-  for (const item of shuffled) {
-    const token = mapRemember(item);
-    if (!token || used.has(String(token).toLowerCase())) continue;
-    remember(histKey, token, maxSize);
-    return item;
-  }
-  const item = shuffled[0];
-  if (item) remember(histKey, mapRemember(item), maxSize);
-  return item;
+    const parsed = parseJsonObject(result.choices[0]?.message?.content?.trim() || '');
+    if (!parsed) throw new Error('json vacío');
+    return parsed;
+  }, { attempts: 4, label: 'DAILY-GROQ' });
 }
 
 /** Álbum del día — uno nuevo por fecha (Perú), Groq primero. */
@@ -191,8 +177,6 @@ Responde SOLO JSON:
       question: String(data.question || '¿Lo has escuchado?').trim(),
     };
     remember(KEYS.albums, `${album.band} — ${album.title}`, MAX.albums);
-  } else {
-    album = pickStaticFallback(ALBUMS, KEYS.albums, (a) => `${a.band} — ${a.title}`, MAX.albums);
   }
 
   if (album) setDayCache('album', album);
@@ -224,8 +208,6 @@ JSON únicamente:
       fact: String(data.fact || '').trim(),
     };
     remember(KEYS.bands, band.name, MAX.bands);
-  } else {
-    band = pickStaticFallback(BANDS, KEYS.bands, (b) => b.name, MAX.bands);
   }
 
   if (band) setDayCache('band', band);
@@ -246,11 +228,9 @@ JSON: {"text":"curiosidad aquí"}`
 
   let text = data?.text ? normalizeGroqText(data.text) : '';
   if (!text || text.length < 20 || looksLikeJsonLeak(text)) {
-    const fb = pickStaticFallback(CURIOSITIES, KEYS.curiosities, (c) => c.slice(0, 60), MAX.curiosities);
-    text = typeof fb === 'string' ? fb : String(fb);
-  } else {
-    remember(KEYS.curiosities, text.slice(0, 100), MAX.curiosities);
+    return null;
   }
+  remember(KEYS.curiosities, text.slice(0, 100), MAX.curiosities);
 
   const out = { text };
   setDayCache('curiosity', out);
@@ -278,8 +258,6 @@ JSON: {"title":"canción","band":"banda","fact":"dato en español"}`
       fact: String(data.fact || '').trim(),
     };
     remember(KEYS.songs, `${song.band} — ${song.title}`, MAX.songs);
-  } else {
-    song = pickStaticFallback(SONGS, KEYS.songs, (s) => `${s.band} — ${s.title}`, MAX.songs);
   }
 
   if (song) setDayCache('song', song);

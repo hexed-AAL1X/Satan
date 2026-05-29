@@ -22,6 +22,7 @@ const {
   getDailySong,
   getDailyOnThisDay,
 } = require('./daily-groq-content');
+const { groqWithRetry, hasGroqKey } = require('../utils/groq-retry');
 const { normalizeGroqText, looksLikeJsonLeak } = require('../utils/groq-json');
 
 // Estado global de battles activos por grupo
@@ -45,6 +46,7 @@ function getGroq() {
 }
 
 async function generateBuenosDias() {
+  if (!hasGroqKey()) return null;
   const groq = getGroq();
   if (!groq) return null;
   const estilos = [
@@ -55,22 +57,24 @@ async function generateBuenosDias() {
     'brutal y directo como un riff de death metal',
   ];
   const estilo = estilos[Math.floor(Math.random() * estilos.length)];
-  try {
+
+  return groqWithRetry(async () => {
+    const pool = ['☠️','⚔️','🦇','💀','👁️','🩸','⛧','🤘','🔱','🖤','🔥'];
+    const chosen = [...pool].sort(() => Math.random() - 0.5).slice(0, 3).join(' ');
     const r = await Promise.race([
       groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: (() => {
-          const pool = ['☠️','⚔️','🦇','💀','👁️','🩸','⛧','🤘','🔱','🖤','🔥'];
-          const chosen = [...pool].sort(() => Math.random() - 0.5).slice(0, 3).join(' ');
-          return `Eres SATÁN saludando a un grupo de metaleros en WhatsApp. Escribe un saludo de buenos días en español, estilo ${estilo}. Máximo 2 líneas cortas. Pon PALABRAS COMPLETAS en mayúsculas para énfasis, el resto en minúsculas (NUNCA alternes letras dentro de una palabra). USA EXACTAMENTE ESTOS EMOJIS y ningún otro: ${chosen} distribuidos en el texto. Sin guiones, sin preguntas al final, sin presentarte. Solo el mensaje.`;
-        })() }],
+        messages: [{ role: 'user', content:
+          `Eres SATÁN saludando a un grupo de metaleros en WhatsApp. Escribe un saludo de buenos días en español, estilo ${estilo}. Máximo 2 líneas cortas. Pon PALABRAS COMPLETAS en mayúsculas para énfasis, el resto en minúsculas (NUNCA alternes letras dentro de una palabra). USA EXACTAMENTE ESTOS EMOJIS y ningún otro: ${chosen} distribuidos en el texto. Sin guiones, sin preguntas al final, sin presentarte. Solo el mensaje.` }],
         temperature: 1.2,
         max_tokens: 80,
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
     ]);
-    return r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '') || null;
-  } catch { return null; }
+    const msg = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
+    if (!msg || msg.length < 8) throw new Error('respuesta vacía');
+    return msg;
+  }, { attempts: 4, label: 'BUENOS-DIAS' });
 }
 
 // --- Helpers --- (Groq + historial persistente, una pieza por fecha Perú) ---
@@ -122,12 +126,14 @@ async function sendBandaDia(sock, jid) {
 
 async function buildCuriosityMessage() {
   const c = await getDailyCuriosity();
-  return `CURIOSIDAD 👁️ del metal:\n\n_${c?.text || 'el inframundo guarda secretos'}_\n\n¿lo sabías? ⚔️ deja tu reacción 🤘`;
+  if (!c?.text) return null;
+  return `CURIOSIDAD 👁️ del metal:\n\n_${c.text}_\n\n¿lo sabías? ⚔️ deja tu reacción 🤘`;
 }
 
 async function buildSongMessage() {
   const s = await getDailySong();
-  return `la CANCIÓN ⛧ del día:\n\n*${s?.title || '?'}* ${s?.band || ''}\n\n🩸 _${s?.fact || ''}_\n\n¿la conocías? ☠️`;
+  if (!s?.title || !s?.band) return null;
+  return `la CANCIÓN ⛧ del día:\n\n*${s.title}* ${s.band}\n\n🩸 _${s.fact || ''}_\n\n¿la conocías? ☠️`;
 }
 
 // Envía el contenido diario según el día de la semana (zona horaria Perú)
@@ -138,11 +144,23 @@ async function sendDailyContent(sock, jid) {
   switch (day) {
     case 1: return sendBandaDia(sock, jid); // Lunes: banda (también va ranking 9:05)
     case 2: return sendAlbumDia(sock, jid);
-    case 3: return sendWithTyping(sock, jid, await buildCuriosityMessage());
+    case 3: {
+      const msg = await buildCuriosityMessage();
+      if (msg) return sendWithTyping(sock, jid, msg);
+      return;
+    }
     case 4: return sendBandaDia(sock, jid);
     case 5: return sendAlbumDia(sock, jid);
-    case 6: return sendWithTyping(sock, jid, await buildSongMessage());
-    case 0: return sendWithTyping(sock, jid, await buildCuriosityMessage());
+    case 6: {
+      const msg = await buildSongMessage();
+      if (msg) return sendWithTyping(sock, jid, msg);
+      return;
+    }
+    case 0: {
+      const msg = await buildCuriosityMessage();
+      if (msg) return sendWithTyping(sock, jid, msg);
+      return;
+    }
     default: return sendBandaDia(sock, jid);
   }
 }
@@ -162,20 +180,44 @@ async function sendBandaDiaTest(sock, jid) {
   return sendBandaDia(sock, jid);
 }
 
-// --- Buenos días (fallback por si Groq falla) ---
-const BUENOS_DIAS_FALLBACK = [
-  `DESPIERTEN ☠️ el inframundo no duerme\nHOY es un nuevo día para el METAL 🤘`,
-  `el SOL 🩸 sale pero el metal no para\nBUENOS DÍAS hermanos del CIRCLE ⚔️ 🖤`,
-  `AMANECE 👁️ y las sombras se retiran\npero SATÁN 💀 sigue aquí buenos días MORTALES ⛧`,
-  `otro día 🦇 para el CIRCLE negro\nDESPIERTEN con algo BRUTAL ☠️`,
-  `BUENOS DÍAS desde las sombras 👁️\nel inframundo abre sus puertas con el alba ☠️ 🖤`,
+async function getBuenosDias() {
+  return generateBuenosDias();
+}
+
+const INACTIVITY_THEMES = [
+  'pide top 3 de bandas black metal',
+  'lanza debate OVERRATED vs UNDERRATED con una banda',
+  'pide el último disco que escucharon completo',
+  'pregunta qué subgénero del metal es el más brutal',
+  'pregunta cuál es el mejor riff de la historia del metal',
 ];
 
-async function getBuenosDias() {
-  const groqMsg = await generateBuenosDias();
-  if (groqMsg) return groqMsg;
-  const idx = Math.floor(Math.random() * BUENOS_DIAS_FALLBACK.length);
-  return BUENOS_DIAS_FALLBACK[idx];
+async function generateInactivityMessage() {
+  if (!hasGroqKey()) return null;
+  const groq = getGroq();
+  if (!groq) return null;
+  const theme = INACTIVITY_THEMES[Math.floor(Math.random() * INACTIVITY_THEMES.length)];
+
+  return groqWithRetry(async () => {
+    const r = await Promise.race([
+      groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content:
+          `Eres SATÁN despertando un grupo de WhatsApp de metal que lleva horas en silencio. Tema del mensaje: ${theme}.
+Escribe 2 líneas cortas en español, tono oscuro y directo. PALABRAS COMPLETAS en mayúsculas para énfasis. Emojis de: ☠️ ⚔️ 🦇 💀 👁️ 🩸 ⛧ 🤘 🔱 🖤. Sin guiones. Solo el mensaje.` }],
+        temperature: 1.1,
+        max_tokens: 100,
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
+    ]);
+    const msg = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
+    if (!msg || msg.length < 12) throw new Error('respuesta vacía');
+    return msg;
+  }, { attempts: 4, label: 'INACTIVITY' });
+}
+
+async function getInactivityMessage() {
+  return generateInactivityMessage();
 }
 
 function getPeruHour() {
@@ -193,22 +235,6 @@ function isActiveHour() {
 function isWeekdayPeru() {
   const day = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' })).getDay();
   return day >= 1 && day <= 5;
-}
-
-const INACTIVITY_PROMPTS = [
-  `el SILENCIO ☠️ es el enemigo del CIRCLE\n¿cuál es tu top 3 de bandas black metal? 🦇 responde o el grupo muere 💀`,
-  `llevan horas sin hablar 👁️\n¿OVERRATED o UNDERRATED? 🔱 digan una banda y el grupo responde ⚔️`,
-  `el fuego 🩸 se apaga\ndigan el ÚLTIMO disco que escucharon completo ☠️ sin excusas 🖤`,
-  `SEÑALES DE VIDA 💀 necesarias\n¿qué subgénero del metal te parece el más BRUTAL? argumenten ⛧ 🦇`,
-  `nadie habla 🔱 y eso no está bien\n¿cuál es el MEJOR riff de la historia del metal? ⚔️ defiendan su respuesta ☠️`,
-];
-
-function getInactivityMessage() {
-  const lastIdx = parseInt(getState('last_inactivity_idx') || '-1');
-  const candidates = INACTIVITY_PROMPTS.map((_, i) => i).filter(i => i !== lastIdx);
-  const idx = candidates[Math.floor(Math.random() * candidates.length)];
-  setState('last_inactivity_idx', idx);
-  return INACTIVITY_PROMPTS[idx];
 }
 
 function updateLastMessage() {
@@ -279,26 +305,37 @@ async function sendOnThisDay(sock, jid) {
 }
 
 // --- Aportador de la semana (se anuncia el lunes antes del ranking) ---
+async function groqSatanLine(prompt, label, maxTokens = 80) {
+  if (!hasGroqKey()) return null;
+  const groq = getGroq();
+  if (!groq) return null;
+  return groqWithRetry(async () => {
+    const r = await Promise.race([
+      groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 1.1,
+        max_tokens: maxTokens,
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
+    ]);
+    const line = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
+    if (!line || line.length < 4) throw new Error('respuesta vacía');
+    return line;
+  }, { attempts: 4, label });
+}
+
 async function sendWeekWinner(sock, jid, groupId) {
   const winner = getPreviousWeekWinner(groupId);
   if (!winner) return;
-  const groq = getGroq();
-  let msg = null;
-  if (groq) {
-    try {
-      const r = await Promise.race([
-        groq.chat.completions.create({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content:
-            `Eres SATÁN. El guerrero @${winner.name} fue el MAYOR APORTADOR de la semana pasada con ${winner.weekly_points} puntos en un grupo de metal. Escríbele un reconocimiento épico y oscuro, máximo 2 líneas, PALABRAS COMPLETAS en mayúsculas, sin guiones, emojis de: ☠️ ⚔️ 🦇 💀 👁️ 🩸 ⛧ 🤘 🔱 🖤. Solo el mensaje.` }],
-          temperature: 1.1, max_tokens: 80,
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('t')), 6000)),
-      ]);
-      msg = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
-    } catch {}
+  const msg = await groqSatanLine(
+    `Eres SATÁN. El guerrero @${winner.name} fue el MAYOR APORTADOR de la semana pasada con ${winner.weekly_points} puntos en un grupo de metal. Escríbele un reconocimiento épico y oscuro, máximo 2 líneas, PALABRAS COMPLETAS en mayúsculas, sin guiones, emojis de: ☠️ ⚔️ 🦇 💀 👁️ 🩸 ⛧ 🤘 🔱 🖤. Solo el mensaje.`,
+    'WEEK-WINNER'
+  );
+  if (!msg) {
+    console.warn('[WEEK-WINNER] Groq no respondió — omitiendo anuncio');
+    return;
   }
-  if (!msg) msg = `🏆 @${winner.name} fue el GUERRERO de la semana\n${winner.weekly_points} puntos 👑 el CIRCLE lo recuerda ☠️`;
   await sendWithTyping(sock, jid, msg);
 }
 
@@ -310,23 +347,15 @@ async function sendMonthlyTop(sock, jid, groupId) {
   const podium = top.slice(0, 3).map((u, i) =>
     `${medals[i] || '  🔱'} ${u.name} ${u.monthly_points} pts`
   ).join('\n');
-  const groq = getGroq();
-  let intro = null;
-  if (groq) {
-    try {
-      const r = await Promise.race([
-        groq.chat.completions.create({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content:
-            `Eres SATÁN cerrando el mes en un grupo de metal. Escribe 1 línea dramática anunciando los campeones del mes. PALABRAS COMPLETAS en mayúsculas, sin guiones, 1-2 emojis de: ☠️ ⚔️ 💀 🩸 🔱. Solo la línea.` }],
-          temperature: 1.1, max_tokens: 60,
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('t')), 5000)),
-      ]);
-      intro = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
-    } catch {}
+  const intro = await groqSatanLine(
+    `Eres SATÁN cerrando el mes en un grupo de metal. Escribe 1 línea dramática anunciando los campeones del mes. PALABRAS COMPLETAS en mayúsculas, sin guiones, 1-2 emojis de: ☠️ ⚔️ 💀 🩸 🔱. Solo la línea.`,
+    'MONTHLY-TOP',
+    60
+  );
+  if (!intro) {
+    console.warn('[MONTHLY-TOP] Groq no respondió — omitiendo anuncio');
+    return;
   }
-  if (!intro) intro = `☠️ el MES termina y el CIRCLE tiene sus GUERREROS`;
   await sendWithTyping(sock, jid, `${intro}\n\n⚔️ TOP MENSUAL:\n\n${podium}\n\n💀 el marcador se reinicia 🖤`);
   resetMonthlyPoints(groupId);
 }
@@ -354,23 +383,14 @@ async function sendBattle(sock, jid) {
   const opt1 = `⚔️ ${band1}`;
   const opt2 = `🩸 ${band2}`;
 
-  const groq = getGroq();
-  let intro = null;
-  if (groq) {
-    try {
-      const r = await Promise.race([
-        groq.chat.completions.create({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content:
-            `Eres SATÁN lanzando una batalla épica entre "${band1}" y "${band2}" ante un grupo de metaleros. Escribe 2 líneas dramáticas y oscuras anunciando el enfrentamiento. PALABRAS COMPLETAS en mayúsculas, sin guiones. Emojis de: ☠️ ⚔️ 💀 🩸 🔱 🦇 👁️ ⛧. Solo las 2 líneas, nada más.` }],
-          temperature: 1.1, max_tokens: 80,
-        }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('t')), 6000)),
-      ]);
-      intro = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
-    } catch {}
+  const intro = await groqSatanLine(
+    `Eres SATÁN lanzando una batalla épica entre "${band1}" y "${band2}" ante un grupo de metaleros. Escribe 2 líneas dramáticas y oscuras anunciando el enfrentamiento. PALABRAS COMPLETAS en mayúsculas, sin guiones. Emojis de: ☠️ ⚔️ 💀 🩸 🔱 🦇 👁️ ⛧. Solo las 2 líneas, nada más.`,
+    'BATTLE-INTRO'
+  );
+  if (!intro) {
+    console.warn('[BATTLE] Groq no respondió intro — omitiendo battle');
+    return;
   }
-  if (!intro) intro = `⚔️ EL INFRAMUNDO lanza su BATTLE semanal\n☠️ dos titanes del metal se enfrentan HOY`;
 
   const hash1 = optionHash(opt1);
   const hash2 = optionHash(opt2);
@@ -425,23 +445,14 @@ async function sendBattle(sock, jid) {
     const pct2 = 100 - pct1;
     const winPct = Math.max(pct1, pct2);
 
-    const groq2 = getGroq();
-    let result = null;
-    if (groq2) {
-      try {
-        const r = await Promise.race([
-          groq2.chat.completions.create({
-            model: 'llama-3.3-70b-versatile',
-            messages: [{ role: 'user', content:
-              `Eres SATÁN anunciando que "${winner}" GANÓ el battle del CIRCLE con ${winPct}% de los votos (${total} guerreros votaron). 1-2 líneas brutales y dramáticas. PALABRAS COMPLETAS en mayúsculas, sin guiones. Emojis de: ☠️ ⚔️ 💀 🩸 🔱 🤘. Solo el mensaje.` }],
-            temperature: 1.1, max_tokens: 80,
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('t')), 5000)),
-        ]);
-        result = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
-      } catch {}
+    const result = await groqSatanLine(
+      `Eres SATÁN anunciando que "${winner}" GANÓ el battle del CIRCLE con ${winPct}% de los votos (${total} guerreros votaron). 1-2 líneas brutales y dramáticas. PALABRAS COMPLETAS en mayúsculas, sin guiones. Emojis de: ☠️ ⚔️ 💀 🩸 🔱 🤘. Solo el mensaje.`,
+      'BATTLE-RESULT'
+    );
+    if (!result) {
+      console.warn('[BATTLE] Groq no respondió resultado — omitiendo cierre');
+      return;
     }
-    if (!result) result = `⚔️ *${winner}* DOMINA el CIRCLE\n${total} guerreros votaron — el inframundo ha DECIDIDO ☠️`;
 
     const bar1 = '▓'.repeat(Math.round(pct1 / 10)) + '░'.repeat(10 - Math.round(pct1 / 10));
     const bar2 = '▓'.repeat(Math.round(pct2 / 10)) + '░'.repeat(10 - Math.round(pct2 / 10));
@@ -566,13 +577,17 @@ function setupScheduler(arg) {
 
     if (isWeekdayPeru()) {
       const msg = await getBuenosDias();
-      await forEachGroup(sock, async (gid) => {
-        await sendWithTyping(sock, gid, msg);
-        if (getStickerFiles('buenos_dias').length > 0) {
-          await new Promise(r => setTimeout(r, 1000));
-          await sendMorningStickers(sock, gid);
-        }
-      }, 1500, 'buenos-dias');
+      if (msg) {
+        await forEachGroup(sock, async (gid) => {
+          await sendWithTyping(sock, gid, msg);
+          if (getStickerFiles('buenos_dias').length > 0) {
+            await new Promise(r => setTimeout(r, 1000));
+            await sendMorningStickers(sock, gid);
+          }
+        }, 1500, 'buenos-dias');
+      } else {
+        console.warn('[CRON buenos-dias] Groq no respondió — omitiendo');
+      }
     }
 
     if (sendOnThisDayToday) {
@@ -619,9 +634,13 @@ function setupScheduler(arg) {
     if (!isActiveHour()) return;
     const horasSinMensaje = (Date.now() - lastMessageTime) / (1000 * 60 * 60);
     if (horasSinMensaje >= SCHED.inactivityHours) {
-      const msg = getInactivityMessage();
-      await forEachGroup(sock, async (gid) => sendWithTyping(sock, gid, msg), 1500, 'inactividad');
-      lastMessageTime = Date.now();
+      const msg = await getInactivityMessage();
+      if (msg) {
+        await forEachGroup(sock, async (gid) => sendWithTyping(sock, gid, msg), 1500, 'inactividad');
+        lastMessageTime = Date.now();
+      } else {
+        console.warn('[CRON inactividad] Groq no respondió — omitiendo');
+      }
     }
   }), { timezone: 'America/Lima' });
 
