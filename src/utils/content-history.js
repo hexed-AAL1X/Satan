@@ -71,6 +71,10 @@ function setDayCache(type, data) {
   setState(`day_${type}_${getPeruDateKey()}`, JSON.stringify(data));
 }
 
+function clearDayCache(type) {
+  setState(`day_${type}_${getPeruDateKey()}`, '');
+}
+
 module.exports = {
   KEYS,
   MAX,
@@ -80,4 +84,5 @@ module.exports = {
   getPeruDateKey,
   getDayCache,
   setDayCache,
+  clearDayCache,
 };
