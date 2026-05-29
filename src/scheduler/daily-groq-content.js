@@ -1,5 +1,5 @@
 const Groq = require('groq-sdk');
-const { ALBUMS, BANDS, CURIOSITIES, SONGS } = require('../../data/content');
+const { ALBUMS, BANDS, CURIOSITIES, SONGS, ANNIVERSARIES } = require('../../data/content');
 const {
   KEYS,
   MAX,
@@ -9,6 +9,11 @@ const {
   setDayCache,
   loadList,
 } = require('../utils/content-history');
+const {
+  normalizeGroqText,
+  looksLikeJsonLeak,
+  parseGroqJsonObject,
+} = require('../utils/groq-json');
 
 const MEGA_BANNED =
   'Mayhem, Darkthrone, Burzum, Metallica, Slayer, Iron Maiden, Black Sabbath, Death, ' +
@@ -23,18 +28,34 @@ function getGroq() {
 }
 
 function parseJsonObject(raw) {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) return null;
-    try {
-      return JSON.parse(m[0]);
-    } catch {
-      return null;
-    }
+  return parseGroqJsonObject(raw);
+}
+
+function sanitizeOnThisDayEntry(entry) {
+  if (!entry?.text) return null;
+  const text = normalizeGroqText(entry.text);
+  if (!text || text.length < 15 || looksLikeJsonLeak(text)) return null;
+  return {
+    text,
+    artist: entry.artist ? String(entry.artist).trim() : null,
+    hook: entry.hook ? String(entry.hook).trim() : text.slice(0, 80),
+  };
+}
+
+function getOnThisDayFallback(month, day) {
+  const mmdd = `${month}-${day}`;
+  const ann = ANNIVERSARIES.find((a) => a.date === mmdd);
+  if (ann) {
+    return {
+      text: `Un día como hoy en ${ann.year} el CIRCLE recuerda el lanzamiento de ${ann.title} de ${ann.band} ☠️`,
+      artist: ann.band,
+      hook: `${ann.band} ${ann.title} ${mmdd}`,
+    };
   }
+  const fb = pickStaticFallback(CURIOSITIES, KEYS.onthisday, (c) => c.slice(0, 60), MAX.onthisday);
+  if (!fb) return null;
+  const text = typeof fb === 'string' ? fb : String(fb);
+  return { text, artist: null, hook: text.slice(0, 80) };
 }
 
 async function groqJson(prompt, maxTokens = 320, temperature = 0.95) {
@@ -151,8 +172,8 @@ Tono informativo para metaleros. Español. 2 oraciones máximo. Sin inventar fec
 JSON: {"text":"curiosidad aquí"}`
   );
 
-  let text = data?.text ? String(data.text).trim() : '';
-  if (!text || text.length < 20) {
+  let text = data?.text ? normalizeGroqText(data.text) : '';
+  if (!text || text.length < 20 || looksLikeJsonLeak(text)) {
     const fb = pickStaticFallback(CURIOSITIES, KEYS.curiosities, (c) => c.slice(0, 60), MAX.curiosities);
     text = typeof fb === 'string' ? fb : String(fb);
   } else {
@@ -196,7 +217,8 @@ JSON: {"title":"canción","band":"banda","fact":"dato en español"}`
 /** Un día como hoy — hecho distinto cada vez que corre (por fecha). */
 async function getDailyOnThisDay(month, day) {
   const cached = getDayCache('onthisday');
-  if (cached?.text) return cached;
+  const cachedClean = sanitizeOnThisDayEntry(cached);
+  if (cachedClean) return cachedClean;
 
   const monthNames = [
     'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -209,18 +231,19 @@ async function getDailyOnThisDay(month, day) {
     `Eres SATÁN. Hoy es ${day} de ${monthName}. Busca UN hecho histórico REAL del metal/rock pesado ocurrido en esa fecha (cualquier año): lanzamiento, muerte, debut, concierto legendario, polémica.
 Si de verdad no hay nada documentable para esa fecha exacta, elige el hecho MÁS cercano en el calendario (±3 días) pero distinto a los ya listados.${exclude}
 NO repitas Mayhem Euronymous mismo relato de siempre si ya está en la lista.
-JSON:
-{"text":"2-3 líneas estilo SATÁN mayúsculas en palabras clave sin guiones","artist":"artista o banda principal","hook":"frase única de 8 palabras max para deduplicar"}`
+IMPORTANTE: el campo text debe ser SOLO prosa en español (2 líneas cortas, máximo 250 caracteres). NUNCA metas JSON ni llaves dentro de text.
+Responde SOLO JSON válido:
+{"text":"2 líneas estilo SATÁN mayúsculas en palabras clave sin guiones","artist":"artista o banda principal","hook":"frase única de 8 palabras max para deduplicar"}`,
+    420,
+    0.85
   );
 
-  let result = null;
-  if (data?.text && !String(data.text).includes('NO_FOUND')) {
-    result = {
-      text: String(data.text).replace(/[—–-]+/g, ' ').trim(),
-      artist: data.artist ? String(data.artist).trim() : null,
-      hook: data.hook ? String(data.hook).trim() : data.text.slice(0, 80),
-    };
+  let result = sanitizeOnThisDayEntry(data);
+  if (result) {
     remember(KEYS.onthisday, result.hook, MAX.onthisday);
+  } else {
+    result = sanitizeOnThisDayEntry(getOnThisDayFallback(month, day));
+    if (result) remember(KEYS.onthisday, result.hook, MAX.onthisday);
   }
 
   if (result) setDayCache('onthisday', result);

@@ -16,6 +16,7 @@ const {
   getDailySong,
   getDailyOnThisDay,
 } = require('./daily-groq-content');
+const { normalizeGroqText, looksLikeJsonLeak } = require('../utils/groq-json');
 
 // Estado global de battles activos por grupo
 const activeBattles = new Map();
@@ -226,9 +227,10 @@ async function sendOnThisDay(sock, jid) {
   }
 
   const result = await getDailyOnThisDay(mm, dd);
-  if (result?.text) {
+  const body = result?.text ? normalizeGroqText(result.text) : '';
+  if (body && body.length >= 15 && !looksLikeJsonLeak(body)) {
     await new Promise(r => setTimeout(r, 1500));
-    const header = `👁️ UN DÍA COMO HOY en el metal:\n\n${result.text}`;
+    const header = `👁️ UN DÍA COMO HOY en el metal:\n\n${body}`;
 
     let artistImg = null;
     if (result.artist) {
