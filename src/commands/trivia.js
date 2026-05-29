@@ -158,10 +158,32 @@ function buildQuestionMsg(q, num) {
   return `☠️ PREGUNTA ${num}/3 ☠️\n\n${q.question}\n\n${q.options.join('\n')}\n\n_responde A, B o C 💀_`;
 }
 
-async function startMetalQuiz(sock, groupJid) {
-  if (activeMetalQuiz.has(groupJid) || activeSingleTrivia.has(groupJid)) {
-    await sendWithTyping(sock, groupJid, '👁️ ya hay una trivia activa espera que termine');
-    return null;
+function cancelSingleTrivia(groupJid) {
+  const session = activeSingleTrivia.get(groupJid);
+  if (!session) return false;
+  clearTimeout(session.timeout);
+  activeSingleTrivia.delete(groupJid);
+  return true;
+}
+
+function cancelMetalQuiz(groupJid) {
+  return activeMetalQuiz.delete(groupJid);
+}
+
+async function startMetalQuiz(sock, groupJid, opts = {}) {
+  const forceReplace = opts.forceReplace === true;
+  const hasMetal = activeMetalQuiz.has(groupJid);
+  const hasSingle = activeSingleTrivia.has(groupJid);
+
+  if (hasMetal || hasSingle) {
+    if (forceReplace) {
+      cancelMetalQuiz(groupJid);
+      cancelSingleTrivia(groupJid);
+      await sendWithTyping(sock, groupJid, '⌛ ronda anterior cancelada — METAL QUIZ nuevo ⚔️');
+    } else {
+      await sendWithTyping(sock, groupJid, '👁️ ya hay una trivia activa espera que termine');
+      return null;
+    }
   }
 
   const questions = pickThreeQuestions();
@@ -269,4 +291,12 @@ async function checkTriviaAnswer(sock, groupJid, senderJid, senderName, text) {
   return false;
 }
 
-module.exports = { startTrivia, startMetalQuiz, checkTriviaAnswer, activeSingleTrivia, activeMetalQuiz };
+module.exports = {
+  startTrivia,
+  startMetalQuiz,
+  cancelMetalQuiz,
+  cancelSingleTrivia,
+  checkTriviaAnswer,
+  activeSingleTrivia,
+  activeMetalQuiz,
+};

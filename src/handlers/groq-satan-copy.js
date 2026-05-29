@@ -222,8 +222,14 @@ Responde SOLO JSON: {"text":"tu mensaje aquí con saltos de línea reales como \
   }
 }
 
+/** Mismo texto que !help (Groq + bloque de respaldo idéntico). */
+async function getCommandHelpMessage() {
+  return satanGroqMessage('help', { helpBlock: FB.help() });
+}
+
 module.exports = {
   satanGroqMessage,
+  getCommandHelpMessage,
   stripDashes,
   FB,
 };

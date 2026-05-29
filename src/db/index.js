@@ -102,9 +102,24 @@ function addStrike(jid, reason, message, groupId = '') {
   return getUser(jid, groupId).strikes;
 }
 
+// In-memory mute map: groupId → Map<jid, muteUntilUnix>
+const _mutedMemory = new Map();
+
 function muteUser(jid, hours, groupId = '') {
-  const until = Math.floor(Date.now() / 1000) + hours * 3600;
-  getDb().prepare(`UPDATE users SET muted_until = ? WHERE jid = ? AND group_id = ?`).run(until, jid, groupId);
+  const db = getDb();
+  const until = hours > 0 ? Math.floor(Date.now() / 1000) + hours * 3600 : 0;
+  db.prepare(`
+    INSERT INTO users (jid, group_id, name, muted_until) VALUES (?, ?, ?, ?)
+    ON CONFLICT(jid, group_id) DO UPDATE SET muted_until = excluded.muted_until
+  `).run(jid, groupId, jid.split('@')[0], until);
+  // Also store in memory for fast cross-format matching
+  if (!_mutedMemory.has(groupId)) _mutedMemory.set(groupId, new Map());
+  _mutedMemory.get(groupId).set(jid, until);
+  console.log(`[MUTE-DB] stored jid=${jid} group=${groupId} until=${until}`);
+}
+
+function muteUserMultiJid(jids, hours, groupId = '') {
+  for (const j of jids) muteUser(j, hours, groupId);
 }
 
 function banUser(jid, groupId = '') {
@@ -112,10 +127,34 @@ function banUser(jid, groupId = '') {
 }
 
 function isUserMuted(jid, groupId = '') {
+  const now = Math.floor(Date.now() / 1000);
+  // 1. Check DB exact match
   const user = getUser(jid, groupId);
-  if (!user) return false;
-  return user.muted_until > Math.floor(Date.now() / 1000);
+  if (user && user.muted_until > now) return true;
+  // 2. Check DB fuzzy (number prefix)
+  const number = jid.split('@')[0].split(':')[0];
+  if (number) {
+    const row = getDb().prepare(
+      `SELECT muted_until FROM users WHERE group_id = ? AND (jid LIKE ? OR jid LIKE ?)`
+    ).get(groupId, `${number}@%`, `%:${number}@%`);
+    if (row && row.muted_until > now) return true;
+  }
+  // 3. Check in-memory map (catches LID↔phone mismatches)
+  const groupMap = _mutedMemory.get(groupId);
+  if (groupMap) {
+    if (groupMap.has(jid) && groupMap.get(jid) > now) return true;
+    if (number) {
+      for (const [storedJid, until] of groupMap) {
+        if (until <= now) continue;
+        const storedNum = storedJid.split('@')[0].split(':')[0];
+        if (storedNum === number) return true;
+      }
+    }
+  }
+  return false;
 }
+
+function getMutedMemory() { return _mutedMemory; }
 
 function removeUser(jid, groupId = '') {
   const db = getDb();
@@ -127,19 +166,30 @@ function removeUser(jid, groupId = '') {
 
 // --- Contributions ---
 
-function getWeekKey() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const week = getWeekNumber(now);
-  return `${year}-W${String(week).padStart(2, '0')}`;
-}
-
 function getWeekNumber(date) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+function weekKeyFromDate(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const isoYear = d.getUTCFullYear();
+  const week = getWeekNumber(date);
+  return `${isoYear}-W${String(week).padStart(2, '0')}`;
+}
+
+function getWeekKey() {
+  return weekKeyFromDate(new Date());
+}
+
+function getPreviousWeekKey(refDate = new Date()) {
+  const prev = new Date(refDate.getTime() - 7 * 86400000);
+  return weekKeyFromDate(prev);
 }
 
 // Thresholds para 15 rangos (índice = nivel)
@@ -223,15 +273,7 @@ function resetMonthlyPoints(groupId = '') {
 }
 
 function getPreviousWeekWinner(groupId = '') {
-  const now = new Date();
-  const prevWeekDate = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
-  const year = prevWeekDate.getFullYear();
-  const d = new Date(Date.UTC(prevWeekDate.getFullYear(), prevWeekDate.getMonth(), prevWeekDate.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const prevWeek = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-  const prevWeekKey = `${year}-W${String(prevWeek).padStart(2, '0')}`;
+  const prevWeekKey = getPreviousWeekKey();
 
   const results = getDb().prepare(`
     SELECT u.jid, u.name, u.level, COALESCE(SUM(c.points), 0) as weekly_points
@@ -274,8 +316,10 @@ module.exports = {
   getUser,
   addStrike,
   muteUser,
+  muteUserMultiJid,
   banUser,
   isUserMuted,
+  getMutedMemory,
   removeUser,
   addContribution,
   updateLevel,
@@ -283,6 +327,7 @@ module.exports = {
   getMonthlyRanking,
   resetMonthlyPoints,
   getPreviousWeekWinner,
+  getPreviousWeekKey,
   getWeekKey,
   getState,
   setState,

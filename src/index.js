@@ -447,17 +447,15 @@ async function startBot() {
         global._apiServerStarted = true;
         const { getBuenosDias, sendDailyContent, sendAlbumDia, sendBandaDia, sendOnThisDay, sendBattle, sendWeekWinner, sendMonthlyTop } = require('./scheduler');
         const { buildRankingMessage } = require('./scheduler/ranking');
+        const { getPreviousWeekKey } = require('./db');
         const { startTrivia, startMetalQuiz } = require('./commands/trivia');
         const { sendMeme, sendRecommendations, getBandInfo, getAlbumInfo, getLyrics } = require('./commands');
+        const { getCommandHelpMessage } = require('./handlers/groq-satan-copy');
 
         const INACTIVITY_MSGS = [
           `el SILENCIO ☠️ es el enemigo del CIRCLE\n¿cuál es tu top 3 de bandas black metal? 🦇 responde o el grupo muere 💀`,
           `llevan horas sin hablar 👁️\n¿OVERRATED o UNDERRATED? 🔱 digan una banda y el grupo responde ⚔️`,
           `el fuego 🩸 se apaga\ndigan el ÚLTIMO disco que escucharon completo ☠️ sin excusas 🖤`,
-        ];
-        const CMD_MSGS = [
-          `⚔️ COMANDOS del CIRCLE:\n\n🎖️ !rank  ← tu rango y puntos\n🏆 !top  ← ranking semanal\n🎵 !band [nombre]  ← info de una banda con imagen\n💿 !album [nombre]  ← info de un álbum con portada\n🩸 !recomienda [género]  ← 3 bandas poco conocidas\n☠️ !trivia [facil|medio|dificil]  ← pregunta de 30s\n📜 !ruleset  ← reglas del CIRCLE 🖤`,
-          `👁️ qué PUEDES HACER aquí:\n\n!rank  ← tu nivel actual\n!top  ← quién lidera esta semana\n!band [nombre]  ← busca una banda con imagen y links\n!album [nombre]  ← portada info y links del álbum\n!recomienda  ← descubre bandas de culto\n!trivia  ← pregunta metal 30 segundos\n!ruleset  ← normas del CIRCLE ⚔️`,
         ];
 
         function readBody(req) {
@@ -540,7 +538,7 @@ async function startBot() {
             }
 
             if (url === '/test/ranking') {
-              const msg = buildRankingMessage(jid);
+              const msg = buildRankingMessage(jid, getPreviousWeekKey());
               if (msg) await sendWithTyping(sock, jid, msg);
               else await sendWithTyping(sock, jid, `☠️ nadie ha aportado aún — el CIRCLE espera 🖤`);
               res.writeHead(200); res.end('ok'); return;
@@ -553,7 +551,7 @@ async function startBot() {
             }
 
             if (url === '/test/comandos') {
-              const msg = CMD_MSGS[Math.floor(Math.random() * CMD_MSGS.length)];
+              const msg = await getCommandHelpMessage();
               await sendWithTyping(sock, jid, msg);
               res.writeHead(200); res.end('ok'); return;
             }
@@ -835,7 +833,7 @@ async function startBot() {
 
       // Silenciar usuario si está muteado: borrar su mensaje y no procesar
       if (isGroup && isUserMuted(senderJid, jid)) {
-        try { await sock.sendMessage(jid, { delete: msg.key }); } catch (_) {}
+        try { await sock.sendMessage(jid, { delete: msg.key }); } catch (e) { console.error('[MUTE-DEL]', e.message); }
         continue;
       }
 

@@ -4,8 +4,9 @@ const Groq = require('groq-sdk');
 const { ANNIVERSARIES } = require('../../data/content');
 const { buildRankingMessage } = require('./ranking');
 const { startMetalQuiz } = require('../commands/trivia');
-const { getState, setState, getMonthlyRanking, resetMonthlyPoints, getPreviousWeekWinner, getWeekKey } = require('../db');
+const { getState, setState, getMonthlyRanking, resetMonthlyPoints, getPreviousWeekWinner, getPreviousWeekKey } = require('../db');
 const { sendWithTyping } = require('../utils/typing');
+const { getCommandHelpMessage } = require('../handlers/groq-satan-copy');
 const { sendWelcomeStickers, sendMorningStickers, getStickerFiles } = require('../handlers/stickers');
 const { getAlbumArtworkSafe, getBandImageSafe } = require('../utils/images');
 const {
@@ -444,13 +445,7 @@ function hasBattle(jid) {
   return activeBattles.has(jid);
 }
 
-// --- Recordatorio de comandos (sin meme, con parámetros) ---
-const CMD_REMINDERS = [
-  `⚔️ COMANDOS del CIRCLE:\n\n🎖️ !rank  ← tu rango y puntos\n🏆 !top  ← ranking semanal\n🎵 !band [nombre]  ← info de una banda con imagen\n💿 !album [nombre]  ← info de un álbum con portada\n🩸 !recomienda [género]  ← 3 bandas poco conocidas\n☠️ !trivia [facil|medio|dificil]  ← pregunta de 30s\n📜 !ruleset  ← reglas del CIRCLE 🖤`,
-  `👁️ qué PUEDES HACER aquí:\n\n!rank  ← tu nivel actual\n!top  ← quién lidera esta semana\n!band [nombre]  ← busca una banda con imagen y links\n!album [nombre]  ← portada info y links del álbum\n!recomienda  ← descubre bandas de culto\n!trivia  ← pregunta metal 30 segundos\n!ruleset  ← normas del CIRCLE ⚔️`,
-  `☠️ LOS COMANDOS del INFRAMUNDO:\n\n🤘 !rank  ← tu rango\n🥇 !top  ← ranking semanal\n🎸 !band [nombre de banda]\n🎶 !album [nombre del álbum]\n🩸 !recomienda [género opcional]\n⚡ !trivia [facil / medio / dificil]\n📜 !ruleset  ← las reglas 🖤`,
-];
-
+// --- Recordatorio de comandos: mismo contenido que !help ---
 // --- Setup de todos los cron jobs ---
 // Cache de grupos activos: se refresca al conectar y se mantiene en memoria
 let cachedGroups = [];
@@ -539,12 +534,13 @@ function setupScheduler(arg) {
     await forEachGroup(sock, async (gid) => sendOnThisDay(sock, gid), 1500, 'onthisday');
   }), { timezone: 'America/Lima' });
 
-  // Ranking lunes 9:05 AM
+  // Ranking lunes 9:05 AM — podio de la semana PASADA (antes de que cuente la nueva)
   cron.schedule('5 9 * * 1', safe(async (sock) => {
     await forEachGroup(sock, async (gid) => {
+      const prevWeek = getPreviousWeekKey();
       await sendWeekWinner(sock, gid, gid);
       await new Promise(r => setTimeout(r, 3000));
-      const msg = buildRankingMessage(gid);
+      const msg = buildRankingMessage(gid, prevWeek);
       if (msg) await sendWithTyping(sock, gid, msg);
     }, 2000, 'ranking-lunes');
   }), { timezone: 'America/Lima' });
@@ -571,7 +567,7 @@ function setupScheduler(arg) {
   ['20 13 * * 1,3,5', '30 19 * * 1,3,5'].forEach((cronExpr, i) => {
     const labels = ['quiz-1:20pm', 'quiz-7:30pm'];
     cron.schedule(cronExpr, safe(async (sock) => {
-      await forEachGroup(sock, async (gid) => startMetalQuiz(sock, gid), 1500, labels[i]);
+      await forEachGroup(sock, async (gid) => startMetalQuiz(sock, gid, { forceReplace: true }), 1500, labels[i]);
     }), { timezone: 'America/Lima' });
   });
 
@@ -593,7 +589,7 @@ function setupScheduler(arg) {
     const horasPeru = new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false });
     const hora = parseInt(horasPeru);
     if (hora < 5 || hora > 23) return;
-    const msg = CMD_REMINDERS[Math.floor(Math.random() * CMD_REMINDERS.length)];
+    const msg = await getCommandHelpMessage();
     await forEachGroup(sock, async (gid) => sendWithTyping(sock, gid, msg), 1500, 'cmd-reminder');
   }), { timezone: 'America/Lima' });
 

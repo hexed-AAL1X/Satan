@@ -46,3 +46,5 @@ src/
 data/
   metal_bot.db          # Base de datos (se crea automáticamente)
 ```
+PROPUESTAS / SUGERENCIAS
+Cumpleaños de bandas: notifica automáticamente aniversarios de álbumes míticos del día (ej: "hoy hace 30 años salió Reign in Blood ☠️").

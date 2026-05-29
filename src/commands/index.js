@@ -1,7 +1,7 @@
 const Groq = require('groq-sdk');
 const https = require('https');
 const http = require('http');
-const { getUser, getWeeklyRanking, getWeekKey, muteUser, muteUserMultiJid, banUser } = require('../db');
+const { getUser, getWeeklyRanking, getWeekKey, muteUserMultiJid, banUser } = require('../db');
 const { getLevelName, getLevelEmoji } = require('../scheduler/ranking');
 const { startTrivia, startMetalQuiz } = require('./trivia');
 const { sendWithTyping } = require('../utils/typing');
@@ -33,6 +33,47 @@ const recentlyRecommended = new Set();
 
 const { isForbiddenNonCircleGenre } = require('../utils/circle-genre-guard');
 const { satanGroqMessage, FB } = require('../handlers/groq-satan-copy');
+
+function getMessageContextInfo(msg) {
+  const inner = msg?.message?.ephemeralMessage?.message ||
+    msg?.message?.viewOnceMessage?.message ||
+    msg?.message?.viewOnceMessageV2?.message ||
+    msg?.message;
+  if (!inner) return null;
+  return inner.extendedTextMessage?.contextInfo ||
+    inner.imageMessage?.contextInfo ||
+    inner.videoMessage?.contextInfo ||
+    inner.documentMessage?.contextInfo ||
+    inner.audioMessage?.contextInfo ||
+    inner.stickerMessage?.contextInfo ||
+    null;
+}
+
+function extractMentionedJid(msg, text = '') {
+  const ctx = getMessageContextInfo(msg);
+  if (ctx?.mentionedJid?.length) return ctx.mentionedJid[0];
+  if (ctx?.participant && ctx?.quotedMessage) return ctx.participant;
+  const atNum = String(text || '').match(/@(\d{8,15})/);
+  if (atNum) return `${atNum[1]}@s.whatsapp.net`;
+  return null;
+}
+
+function resolveTargetJids(groupMetadata, targetRef) {
+  if (!targetRef) return [];
+  const allJids = new Set([targetRef]);
+  const targetNum = targetRef.split('@')[0]?.split(':')[0] || '';
+  for (const p of groupMetadata?.participants || []) {
+    const pNum = p.id?.split('@')[0]?.split(':')[0] || '';
+    const pLidNum = p.lid?.split('@')[0]?.split(':')[0] || '';
+    const match = p.id === targetRef || p.lid === targetRef ||
+      (targetNum && (pNum === targetNum || pLidNum === targetNum));
+    if (match) {
+      if (p.id) allJids.add(p.id);
+      if (p.lid) allJids.add(p.lid);
+    }
+  }
+  return [...allJids];
+}
 const { KEYS, remember, exclusionBlock, loadList } = require('../utils/content-history');
 
 // Hidratar historial de recomendaciones (persiste en SQLite)
@@ -409,13 +450,8 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     (ownerLidResolved && senderJid.includes(ownerLidResolved))
   );
 
-  // Extraer mentionedJid con soporte para rawMsg (ephemeral, etc.)
-  const rawMsgInner = msg?.message?.ephemeralMessage?.message ||
-    msg?.message?.viewOnceMessage?.message ||
-    msg?.message;
-  const getMentionedJid = () =>
-    rawMsgInner?.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
-    msg?.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+  // Extraer mención: @persona, respuesta a mensaje o @número en texto
+  const getMentionedJid = () => extractMentionedJid(msg, text);
 
   // Detección robusta de admin: compara por id, por número y por LID
   const senderNumber = senderJid?.split('@')[0]?.split(':')[0] || '';
@@ -519,16 +555,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       return await satanGroqMessage('usage', { usage: '!mute @persona [horas]', example: '!mute @Juan 24' });
     }
     const hours = parseInt(args.find(a => /^\d+$/.test(a))) || 24;
-    // Resolve all JID forms for this user from group metadata
-    const allJids = [mentionedJid];
-    if (groupMetadata?.participants) {
-      for (const p of groupMetadata.participants) {
-        if (p.id === mentionedJid || p.lid === mentionedJid) {
-          if (p.id && !allJids.includes(p.id)) allJids.push(p.id);
-          if (p.lid && !allJids.includes(p.lid)) allJids.push(p.lid);
-        }
-      }
-    }
+    const allJids = resolveTargetJids(groupMetadata, mentionedJid);
     console.log(`[MUTE] mentionedJid=${mentionedJid} allJids=${JSON.stringify(allJids)} group=${jid}`);
     muteUserMultiJid(allJids, hours, jid);
     const targetKey = mentionedJid.split('@')[0];
@@ -559,7 +586,8 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     if (!isAdmin) return await satanGroqMessage('admin_denied');
     const mentionedJid = getMentionedJid();
     if (!mentionedJid) return await satanGroqMessage('usage', { usage: '!unmute @persona', example: '!unmute @Juan' });
-    muteUser(mentionedJid, 0, jid);
+    const allJids = resolveTargetJids(groupMetadata, mentionedJid);
+    muteUserMultiJid(allJids, 0, jid);
     const targetKey = mentionedJid.split('@')[0];
     return {
       text: await satanGroqMessage('unmute_ok', { targetKey }),
