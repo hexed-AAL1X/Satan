@@ -153,30 +153,30 @@ Cuando alguien sube de rango, el bot anuncia el ascenso.
 
 ### Buenos días con sticker
 
-- A las 5:00 AM diario
+- **7:00 AM Lun–Vie** (sin despertar el fin de semana)
 - Mensaje generado en tiempo real con Groq
 - 1 sticker del banco de buenos días (si hay)
 
 ### On This Day
 
-- A las 7:00 AM diario
+- **7:00 AM Lun/Mié/Vie** (3× por semana, no diario)
 - Si encuentra algo histórico del metal para esa fecha lo manda con imagen del artista
 - Si no encuentra nada relevante, no manda nada
 
 ### Contenido diario
 
-- 9:00 AM, 1:00 PM, 7:00 PM diario
+- **7:00 PM** diario (1 slot; antes 9AM/1PM/7PM)
 - Rotativo: álbum del día, banda del día, canción del día, curiosidad metal
 
 ### Detector de inactividad
 
-- Cada hora chequea
-- Si pasan 4 horas sin mensajes, lanza prompt para activar el grupo
-- Solo entre las 5 AM y las 11 PM
+- Cada **2 horas** chequea
+- Si pasan **8 horas** sin mensajes, lanza prompt para activar el grupo
+- Solo entre las **9 AM y las 10 PM**
 
 ### Recordatorio de comandos
 
-- Cada 6 horas, entre 5 AM y 11 PM
+- **12:00 PM** una vez al día (antes cada 6 h)
 - Mensaje aleatorio recordando comandos disponibles
 
 ### Ranking semanal
@@ -199,8 +199,7 @@ Cuando alguien sube de rango, el bot anuncia el ascenso.
 
 ### Metal Quiz (oculto)
 
-- Lunes, Miércoles y Viernes
-- 1:20 PM y 7:30 PM
+- **Viernes 7:30 PM** (1 ronda semanal; antes Lun/Mié/Vie × 2)
 - 3 preguntas seguidas
 - 5 pts por acertar, 15 pts bonus para el primero que acierte las 3
 - Avanza a la siguiente pregunta cuando alguien acierta
@@ -211,20 +210,19 @@ Cuando alguien sube de rango, el bot anuncia el ascenso.
 
 Zona horaria: **America/Lima (Perú)**.
 
+Modo **~50% menos invasivo**: el bot interviene menos pero sigue activo cuando el grupo está muerto.
+
 | Hora | Días | Evento |
 |------|------|--------|
-| 05:00 | Diario | Buenos días + sticker |
-| 07:00 | Diario | On This Day (si hay) |
-| 09:00 | Diario | Contenido diario |
-| 09:00 | Día 1 del mes | Top mensual + reset |
+| 07:00 | Lun–Vie | Buenos días + sticker |
+| 07:00 | Lun/Mié/Vie | On This Day (alternado; no diario) |
 | 09:05 | Lunes | Ranking semanal + ganador anterior |
-| 13:00 | Diario | Contenido diario |
-| 13:20 | Lun/Mié/Vie | Metal Quiz |
-| 14:00 | Sáb/Dom | Battle (encuesta) |
-| 19:00 | Diario | Contenido diario |
-| 19:30 | Lun/Mié/Vie | Metal Quiz |
-| Cada hora 05–23 | Diario | Check inactividad (si ≥4h sin mensajes) |
-| Cada 6 horas 05–23 | Diario | Recordatorio de comandos |
+| 09:00 | Día 1 del mes | Top mensual + reset |
+| 12:00 | Diario | Recordatorio de comandos (1× al día) |
+| 14:00 | Sábado | Battle (encuesta; antes también domingo) |
+| 19:00 | Diario | Contenido diario (1 slot; antes 9AM/1PM/7PM) |
+| 19:30 | Viernes | Metal Quiz |
+| Cada 2 h, 9–22 | Diario | Check inactividad (si ≥8 h sin mensajes; antes 4 h) |
 
 Todas las funciones automáticas se envían a **todos los grupos donde el bot esté presente**.
 

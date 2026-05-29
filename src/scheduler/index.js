@@ -1,9 +1,15 @@
 const cron = require('node-cron');
-const crypto = require('crypto');
 const Groq = require('groq-sdk');
+const { jidNormalizedUser } = require('@whiskeysockets/baileys');
 const { ANNIVERSARIES } = require('../../data/content');
 const { buildRankingMessage } = require('./ranking');
 const { startMetalQuiz } = require('../commands/trivia');
+const {
+  storeMessage,
+  pollOptionHash,
+  handleBattlePollVote,
+  tallyBattleVotes,
+} = require('./battle-polls');
 const { getState, setState, getMonthlyRanking, resetMonthlyPoints, getPreviousWeekWinner, getPreviousWeekKey } = require('../db');
 const { sendWithTyping } = require('../utils/typing');
 const { getCommandHelpMessage } = require('../handlers/groq-satan-copy');
@@ -22,6 +28,14 @@ const { normalizeGroqText, looksLikeJsonLeak } = require('../utils/groq-json');
 const activeBattles = new Map();
 
 const GROUP_ID = process.env.GROUP_ID;
+
+/** Modo menos invasivo (~50% mensajes automáticos vs cron anterior). */
+const SCHED = {
+  activeFrom: 9,   // no nudges antes de las 9
+  activeUntil: 22, // no nudges después de las 22
+  inactivityHours: 8,
+  inactivityCron: '0 */2 * * *', // revisar cada 2h (antes cada 1h)
+};
 
 let groqClient = null;
 function getGroq() {
@@ -164,8 +178,22 @@ async function getBuenosDias() {
   return BUENOS_DIAS_FALLBACK[idx];
 }
 
-// --- Detector de inactividad ---
-let lastMessageTime = Date.now();
+function getPeruHour() {
+  return parseInt(
+    new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false }),
+    10
+  );
+}
+
+function isActiveHour() {
+  const h = getPeruHour();
+  return h >= SCHED.activeFrom && h <= SCHED.activeUntil;
+}
+
+function isWeekdayPeru() {
+  const day = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' })).getDay();
+  return day >= 1 && day <= 5;
+}
 
 const INACTIVITY_PROMPTS = [
   `el SILENCIO ☠️ es el enemigo del CIRCLE\n¿cuál es tu top 3 de bandas black metal? 🦇 responde o el grupo muere 💀`,
@@ -313,7 +341,7 @@ const BATTLE_POOL = [
 ];
 
 function optionHash(name) {
-  return crypto.createHash('sha256').update(name, 'utf8').digest();
+  return pollOptionHash(name);
 }
 
 async function sendBattle(sock, jid) {
@@ -348,8 +376,9 @@ async function sendBattle(sock, jid) {
   const hash2 = optionHash(opt2);
   const state = {
     band1, band2, opt1, opt2, hash1, hash2,
-    votes: {}, // voterJid → 'band1' | 'band2'
+    votes: {},
     pollMsgKey: null,
+    pollMsg: null,
     endTime: Date.now() + 30 * 60 * 1000,
   };
   activeBattles.set(jid, state);
@@ -367,6 +396,10 @@ async function sendBattle(sock, jid) {
       }
     });
     state.pollMsgKey = sent?.key || null;
+    if (sent) {
+      state.pollMsg = sent;
+      storeMessage(sent);
+    }
   } catch (e) {
     console.error('[BATTLE POLL]', e.message);
     // fallback texto
@@ -379,9 +412,8 @@ async function sendBattle(sock, jid) {
     if (!battle) return;
     activeBattles.delete(jid);
 
-    const v1 = Object.values(battle.votes).filter(v => v === 'band1').length;
-    const v2 = Object.values(battle.votes).filter(v => v === 'band2').length;
-    const total = v1 + v2;
+    const meId = sock.user?.id ? jidNormalizedUser(sock.user.id) : '';
+    const { v1, v2, total } = tallyBattleVotes(battle, meId);
 
     if (total === 0) {
       await sendWithTyping(sock, jid, `☠️ el CIRCLE no votó\neste BATTLE queda sin resolución 💀`);
@@ -391,6 +423,7 @@ async function sendBattle(sock, jid) {
     const winner = v1 >= v2 ? band1 : band2;
     const pct1 = Math.round((v1 / total) * 100);
     const pct2 = 100 - pct1;
+    const winPct = Math.max(pct1, pct2);
 
     const groq2 = getGroq();
     let result = null;
@@ -400,7 +433,7 @@ async function sendBattle(sock, jid) {
           groq2.chat.completions.create({
             model: 'llama-3.3-70b-versatile',
             messages: [{ role: 'user', content:
-              `Eres SATÁN anunciando que "${winner}" GANÓ el battle del CIRCLE con ${Math.max(pct1,pct2)}% de los votos. 1-2 líneas brutales y dramáticas. PALABRAS COMPLETAS en mayúsculas, sin guiones. Emojis de: ☠️ ⚔️ 💀 🩸 🔱 🤘. Solo el mensaje.` }],
+              `Eres SATÁN anunciando que "${winner}" GANÓ el battle del CIRCLE con ${winPct}% de los votos (${total} guerreros votaron). 1-2 líneas brutales y dramáticas. PALABRAS COMPLETAS en mayúsculas, sin guiones. Emojis de: ☠️ ⚔️ 💀 🩸 🔱 🤘. Solo el mensaje.` }],
             temperature: 1.1, max_tokens: 80,
           }),
           new Promise((_, reject) => setTimeout(() => reject(new Error('t')), 5000)),
@@ -408,25 +441,32 @@ async function sendBattle(sock, jid) {
         result = r.choices[0]?.message?.content?.trim().replace(/[—–-]+/g, '');
       } catch {}
     }
-    if (!result) result = `⚔️ *${winner}* DOMINA el CIRCLE\nel inframundo ha DECIDIDO ☠️`;
+    if (!result) result = `⚔️ *${winner}* DOMINA el CIRCLE\n${total} guerreros votaron — el inframundo ha DECIDIDO ☠️`;
 
     const bar1 = '▓'.repeat(Math.round(pct1 / 10)) + '░'.repeat(10 - Math.round(pct1 / 10));
     const bar2 = '▓'.repeat(Math.round(pct2 / 10)) + '░'.repeat(10 - Math.round(pct2 / 10));
     await sendWithTyping(sock, jid,
-      `🏆 *RESULTADO del BATTLE* ☠️\n\n⚔️ *${band1}*\n${bar1} ${pct1}%\n\n🩸 *${band2}*\n${bar2} ${pct2}%\n\n${result}`
+      `🏆 *RESULTADO del BATTLE* ☠️\n\n⚔️ *${band1}*\n${bar1} ${pct1}% (${v1} voto${v1 !== 1 ? 's' : ''})\n\n🩸 *${band2}*\n${bar2} ${pct2}% (${v2} voto${v2 !== 1 ? 's' : ''})\n\n${result}`
     );
   }, 30 * 60 * 1000);
 }
 
-// Registrar voto desde poll update — recibe hex del hash SHA-256 de la opción seleccionada
-function registerPollVote(jid, voterJid, selectedHex) {
+// Registrar voto (legacy messages.update — hash Baileys binario, no hex)
+function registerPollVote(jid, voterJid, selectedHash) {
   const battle = activeBattles.get(jid);
   if (!battle) return;
   if (Date.now() > battle.endTime) return;
-  const h1 = battle.hash1.toString('hex');
-  const h2 = battle.hash2.toString('hex');
-  if (selectedHex === h1) battle.votes[voterJid] = 'band1';
-  else if (selectedHex === h2) battle.votes[voterJid] = 'band2';
+  const h1 = pollOptionHash(battle.opt1);
+  const h2 = pollOptionHash(battle.opt2);
+  const hash = typeof selectedHash === 'string'
+    ? selectedHash
+    : Buffer.from(selectedHash).toString();
+  if (hash === h1) battle.votes[voterJid] = 'band1';
+  else if (hash === h2) battle.votes[voterJid] = 'band2';
+}
+
+function onBattlePollVote(sock, msg) {
+  return handleBattlePollVote(sock, msg, activeBattles);
 }
 
 function getBattlePollKey(jid) {
@@ -519,21 +559,26 @@ function setupScheduler(arg) {
     }
   })();
 
-  // Buenos días 5:00 AM
-  cron.schedule('0 5 * * *', safe(async (sock) => {
-    const msg = await getBuenosDias();
-    await forEachGroup(sock, async (gid) => {
-      await sendWithTyping(sock, gid, msg);
-      if (getStickerFiles('buenos_dias').length > 0) {
-        await new Promise(r => setTimeout(r, 1000));
-        await sendMorningStickers(sock, gid);
-      }
-    }, 1500, 'buenos-dias');
-  }), { timezone: 'America/Lima' });
-
-  // On This Day 7AM
+  // Mañana 7:00 — Lun-Vie buenos días; On This Day Lun/Mié/Vie (alternado, no diario)
   cron.schedule('0 7 * * *', safe(async (sock) => {
-    await forEachGroup(sock, async (gid) => sendOnThisDay(sock, gid), 1500, 'onthisday');
+    const peruDay = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' })).getDay();
+    const sendOnThisDayToday = [1, 3, 5].includes(peruDay); // lun, mié, vie
+
+    if (isWeekdayPeru()) {
+      const msg = await getBuenosDias();
+      await forEachGroup(sock, async (gid) => {
+        await sendWithTyping(sock, gid, msg);
+        if (getStickerFiles('buenos_dias').length > 0) {
+          await new Promise(r => setTimeout(r, 1000));
+          await sendMorningStickers(sock, gid);
+        }
+      }, 1500, 'buenos-dias');
+    }
+
+    if (sendOnThisDayToday) {
+      await new Promise(r => setTimeout(r, 2000));
+      await forEachGroup(sock, async (gid) => sendOnThisDay(sock, gid), 1500, 'onthisday');
+    }
   }), { timezone: 'America/Lima' });
 
   // Ranking lunes 9:05 AM — podio de la semana PASADA (antes de que cuente la nueva)
@@ -552,57 +597,47 @@ function setupScheduler(arg) {
     await forEachGroup(sock, async (gid) => sendMonthlyTop(sock, gid, gid), 1500, 'top-mensual');
   }), { timezone: 'America/Lima' });
 
-  // Battle sáb/dom 2PM
-  cron.schedule('0 14 * * 6,0', safe(async (sock) => {
+  // Battle sábado 2PM (solo 1 día; antes sáb+dom)
+  cron.schedule('0 14 * * 6', safe(async (sock) => {
     await forEachGroup(sock, async (gid) => sendBattle(sock, gid), 1500, 'battle');
   }), { timezone: 'America/Lima' });
 
-  // Contenido diario 9AM/1PM/7PM
-  ['0 9 * * *', '0 13 * * *', '0 19 * * *'].forEach((cronExpr, i) => {
-    const labels = ['contenido-9am', 'contenido-1pm', 'contenido-7pm'];
-    cron.schedule(cronExpr, safe(async (sock) => {
-      await forEachGroup(sock, async (gid) => sendDailyContent(sock, gid), 1500, labels[i]);
-    }), { timezone: 'America/Lima' });
-  });
+  // Contenido diario 7PM (1 slot; antes 9AM/1PM/7PM)
+  cron.schedule('0 19 * * *', safe(async (sock) => {
+    await forEachGroup(sock, async (gid) => sendDailyContent(sock, gid), 1500, 'contenido-7pm');
+  }), { timezone: 'America/Lima' });
 
-  // Metal Quiz L/M/V 1:20PM y 7:30PM
-  ['20 13 * * 1,3,5', '30 19 * * 1,3,5'].forEach((cronExpr, i) => {
-    const labels = ['quiz-1:20pm', 'quiz-7:30pm'];
-    cron.schedule(cronExpr, safe(async (sock) => {
-      await forEachGroup(sock, async (gid) => startMetalQuiz(sock, gid, { forceReplace: true }), 1500, labels[i]);
-    }), { timezone: 'America/Lima' });
-  });
+  // Metal Quiz viernes 7:30PM (1 slot; antes Lun/Mié/Vie × 2)
+  cron.schedule('30 19 * * 5', safe(async (sock) => {
+    await forEachGroup(sock, async (gid) => startMetalQuiz(sock, gid, { forceReplace: true }), 1500, 'quiz-viernes');
+  }), { timezone: 'America/Lima' });
 
-  // Inactividad: cada hora 5AM-11PM
-  cron.schedule('0 * * * *', safe(async (sock) => {
-    const horasPeru = new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false });
-    const hora = parseInt(horasPeru);
-    if (hora < 5 || hora > 23) return;
+  // Inactividad: cada 2h, umbral 8h, ventana 9–22
+  cron.schedule(SCHED.inactivityCron, safe(async (sock) => {
+    if (!isActiveHour()) return;
     const horasSinMensaje = (Date.now() - lastMessageTime) / (1000 * 60 * 60);
-    if (horasSinMensaje >= 4) {
+    if (horasSinMensaje >= SCHED.inactivityHours) {
       const msg = getInactivityMessage();
       await forEachGroup(sock, async (gid) => sendWithTyping(sock, gid, msg), 1500, 'inactividad');
       lastMessageTime = Date.now();
     }
   }), { timezone: 'America/Lima' });
 
-  // Recordatorio comandos cada 6h 5AM-11PM
-  cron.schedule('0 */6 * * *', safe(async (sock) => {
-    const horasPeru = new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false });
-    const hora = parseInt(horasPeru);
-    if (hora < 5 || hora > 23) return;
+  // Recordatorio comandos 12:00 (1×/día; antes cada 6h)
+  cron.schedule('0 12 * * *', safe(async (sock) => {
+    if (!isActiveHour()) return;
     const msg = await getCommandHelpMessage();
     await forEachGroup(sock, async (gid) => sendWithTyping(sock, gid, msg), 1500, 'cmd-reminder');
   }), { timezone: 'America/Lima' });
 
-  console.log('\x1b[1;32m✔  Scheduler activo (multi-grupo) — buenos días 5AM · contenido 9AM/1PM/7PM · ranking lunes 9:05AM · trivia L/M/V 1:20PM/7:30PM · inactividad/comandos desde 5AM\x1b[0m');
+  console.log('\x1b[1;32m✔  Scheduler activo (modo ~50%) — mañana 7AM Lun-Vie · onthisday Lun/Mié/Vie · contenido 7PM · quiz Vie 7:30PM · battle Sáb 2PM · ranking Lun 9:05 · inactividad 8h/2h · comandos 12PM\x1b[0m');
 }
 
 module.exports = {
   setupScheduler, updateLastMessage, getBuenosDias,
   sendDailyContent, sendAlbumDia, sendBandaDia,
   sendOnThisDay, sendBattle, sendWeekWinner, sendMonthlyTop,
-  registerBattleVote, registerPollVote, getBattlePollKey, hasBattle,
+  registerBattleVote, registerPollVote, onBattlePollVote, getBattlePollKey, hasBattle,
   // compatibilidad hacia atrás con index.js HTTP endpoints
   getDailyContent, buildAlbumMessage: sendAlbumDiaTest, buildBandMessage: sendBandaDiaTest,
 };

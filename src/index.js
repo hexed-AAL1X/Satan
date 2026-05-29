@@ -21,7 +21,8 @@ const { hasGroupLink, handleGroupLink } = require('./moderation/links');
 const { detectAndRegisterContribution, registerAlbumSession, shouldReact, shouldReactAudio, classifyMedia } = require('./contributions/detect');
 const { handleChatMessage, handleCommand, saveMemeFromMsg, handlePendingMenu } = require('./commands');
 const { checkTriviaAnswer } = require('./commands/trivia');
-const { setupScheduler, updateLastMessage, registerBattleVote, registerPollVote, getBattlePollKey, hasBattle } = require('./scheduler');
+const { setupScheduler, updateLastMessage, registerBattleVote, registerPollVote, onBattlePollVote, getBattlePollKey, hasBattle } = require('./scheduler');
+const { getStoredMessage, getPollUpdateContent } = require('./scheduler/battle-polls');
 const { sendWithTyping } = require('./utils/typing');
 
 const AUTH_DIR = path.join(__dirname, '../auth_info_baileys');
@@ -250,6 +251,7 @@ async function startBot() {
     browser: ['Metal Bot', 'Chrome', '1.0.0'],
     syncFullHistory: false,
     markOnlineOnConnect: true,
+    getMessage: async (key) => getStoredMessage(key),
   });
 
   const processGroupParticipantEvent = async (update) => {
@@ -669,23 +671,19 @@ async function startBot() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // --- Votos de encuestas nativas (battles) ---
+  // --- Votos de encuestas nativas (battles) — Baileys no descifra solo; backup vía messages.update ---
   sock.ev.on('messages.update', (updates) => {
     for (const { key, update } of updates) {
       if (!update.pollUpdates?.length) continue;
-      // Buscar si este mensaje es una encuesta de battle activa
       const jid = key.remoteJid;
       const pollKey = getBattlePollKey(jid);
       if (!pollKey || pollKey.id !== key.id) continue;
       for (const pu of update.pollUpdates) {
         const voterJid = pu.pollUpdateMessageKey?.participant || pu.pollUpdateMessageKey?.remoteJid;
         if (!voterJid) continue;
-        // selectedOptions es array de Buffers (SHA-256 del nombre de opción)
         const selected = pu.vote?.selectedOptions || [];
         if (selected.length === 0) continue;
-        // Convertir buffer a hex para comparar
-        const selectedHex = selected[0].toString('hex');
-        registerPollVote(jid, voterJid, selectedHex);
+        registerPollVote(jid, voterJid, selected[0]);
       }
     }
   });
@@ -717,6 +715,12 @@ async function startBot() {
     if (type !== 'notify') return;
 
     for (const msg of messages) {
+      // Votos de encuesta BATTLE (descifrado manual — Baileys lo tiene desactivado)
+      if (getPollUpdateContent(msg)) {
+        onBattlePollVote(sock, msg);
+        continue;
+      }
+
       // Detectar si el bot fue añadido a un grupo (mensaje de sistema)
       const stubType = msg.messageStubType;
       const isGroupAdd = stubType === 27 || stubType === 28; // GROUP_PARTICIPANT_ADD / INVITE

@@ -58,15 +58,15 @@ const FB = {
     `☠️ @${f.targetKey} silenciado por ${f.hours} hora${f.hours !== 1 ? 's' : ''}\nsus mensajes serán eliminados automáticamente ⚔️`,
   ban_ok: (f) => `🔱 @${f.targetKey} fue expulsado del CIRCLE\nel inframundo no perdona ☠️`,
   unmute_ok: (f) => `🖤 @${f.targetKey} ya puede hablar de nuevo en el CIRCLE 🤘`,
-  owner_dm_sent: () => `🔱 reporte enviado al privado SEÑOR ☠️`,
-  owner_help_sent: () => `🔱 ayuda enviada al privado SEÑOR`,
+  owner_dm_sent: () => `🔱 reporte enviado al privado ☠️`,
+  owner_help_sent: () => `🔱 ayuda enviada al privado`,
   owner_pro_ok: () => `🔱 grupo aprobado PERMANENTE ☠️`,
   owner_trial_ok: () => `⌛ modo TRIAL activado — 12h y me voy ☠️`,
   meme_caption: () => `🤘 meme del CIRCLE ☠️`,
   owner_help: (f) => f.panelBlock || '',
   owner_cancel: () => `👁️ acción cancelada`,
   owner_invalid_num: (f) =>
-    `⚠️ número inválido SEÑOR responde entre 1 y ${f.maxNum} o "0" para cancelar`,
+    `⚠️ número inválido responde entre 1 y ${f.maxNum} o "0" para cancelar`,
   owner_approve_dm: (f) => `🔱 *${f.name}* → aprobado PERMANENTE ☠️`,
   owner_degrade_dm: (f) => `⌛ *${f.name}* → TRIAL activado\nse irá en ~${f.remHours}h ☠️`,
   group_pro_broadcast: () =>
@@ -76,18 +76,18 @@ const FB = {
   reco_empty: () => `☠️ no encontré nada esta vez\nintenta de nuevo MORTAL 🖤`,
   owner_menu_list: (f) => f.rawBlock || '',
   groups_report: (f) => f.rawBlock || '',
-  group_not_found: (f) => `👁️ no encontré ningún grupo con "${f.query}" SEÑOR`,
+  group_not_found: (f) => `👁️ no encontré ningún grupo con "${f.query}"`,
   unapprove_ok: (f) => `⚔️ *${f.subject}* → desaprobado`,
   lookup_invoking: (f) => `👁️ invocando ${f.kind} de *${f.query}* ☠️`,
   band_not_found: (f) => `☠️ no encontré info sobre *${f.band}* en el inframundo 💀`,
   album_not_found: (f) => `☠️ no encontré info sobre *${f.query}* en el inframundo 💀`,
   lyrics_not_found: (f) =>
     `☠️ no encontré letra de *${f.song}* en el inframundo 💀\nusa: !letra [canción] por [artista]`,
-  private_catalog_ack: () => `📜 catálogo de funciones PRIVADAS enviado a tu número SEÑOR ☠️`,
+  private_catalog_ack: () => `📜 catálogo privado enviado a tu chat ☠️`,
   test_started_ack: () =>
     `⚔️ batería *!test* lanzada\nmirá TU PRIVADO con el bot 👁️\npuede tardar varios MINUTOS ☠️`,
   test_must_private: () =>
-    `👁️ *!test* solo funciona escribiendo al bot en PRIVADO\nno desde el grupo SEÑOR ☠️`,
+    `👁️ *!test* solo funciona escribiendo al bot en PRIVADO\nno desde el grupo ☠️`,
 };
 
 const SCENARIO_HINTS = {
@@ -122,30 +122,30 @@ const SCENARIO_HINTS = {
     'Confirmación silencio {{hours}} horas para @{{targetKey}} eliminar mensajes automático tono SATÁN.',
   ban_ok: 'Confirmación expulsión @{{targetKey}}.',
   unmute_ok: 'Confirmación puede hablar @{{targetKey}}.',
-  owner_dm_sent: 'Avisas al amo que ya mandaste reporte privado muy corto devoto.',
-  owner_help_sent: 'Avisas al amo ayuda ya en privado.',
-  owner_pro_ok: 'Grupo permanente modo PRO confirmación devota corta.',
-  owner_trial_ok: 'Trial 12 h activado anuncio crudo corto.',
+  owner_dm_sent: 'Aviso corto: reporte ya en privado. Tono SATÁN directo sin adular.',
+  owner_help_sent: 'Aviso corto: ayuda en privado. Sin reverencia.',
+  owner_pro_ok: 'Grupo permanente confirmado. Tono seco SATÁN.',
+  owner_trial_ok: 'Trial 12 h activado. Anuncio crudo corto.',
   meme_caption: 'Pie de imagen meme para metaleros 4 a 8 palabras 1 emoji humor oscuro.',
   owner_help:
-    'Panel de ayuda para el AMO. Debes incluir el bloque completo facts.panelBlock sin omitir líneas ni comandos.',
-  owner_cancel: 'Cancelaste menú. Muy corto devoto al SEÑOR.',
+    'Panel admin. Incluye facts.panelBlock completo. Tono SATÁN normal sin adular.',
+  owner_cancel: 'Menú cancelado. Frase corta sin reverencia.',
   owner_invalid_num:
     'Número fuera de rango. Di que responda entre 1 y {{maxNum}} o 0 cancelar. Sin guión.',
   owner_approve_dm:
-    'Confirmación al SEÑOR grupo {{name}} aprobado permanente datos exactos en negrita si hace falta.',
+    'Confirmación grupo {{name}} aprobado permanente. Datos exactos tono directo.',
   owner_degrade_dm:
-    'Confirmación trial activado para {{name}} horas restantes {{remHours}} datos exactos.',
+    'Confirmación trial para {{name}} ~{{remHours}}h restantes. Datos exactos.',
   group_pro_broadcast:
-    'Mensaje al grupo de que el SEÑOR autorizó presencia permanente tono SATÁN breve sin guión.',
+    'Mensaje al grupo: presencia permanente autorizada. Tono SATÁN breve.',
   menu_fetch_error: 'Error al listar grupos menciona error técnico facts.error breve.',
   kick_owner_confirm:
-    'Confirmación al SEÑOR que saliste del grupo {{groupName}} con despedida ya enviada.',
+    'Confirmación: saliste de {{groupName}} con despedida enviada. Tono seco.',
   reco_empty: 'No hay resultados de recomendaciones ahora invita a reintentar otro estilo del CIRCLE muy breve sin guión.',
   owner_menu_list:
-    'Menú para el SEÑOR. Conserva PALABRA POR PALABRA el bloque facts.rawBlock números nombres tamaños y estados sin cambiar datos. Puedes añadir UNA línea SATÁN al inicio o al final. Sin guión.',
+    'Menú admin. Conserva PALABRA POR PALABRA facts.rawBlock. Una línea SATÁN al inicio o final sin adular.',
   groups_report:
-    'Reporte de grupos para el SEÑOR. Conserva PALABRA POR PALABRA el bloque facts.rawBlock todos los números nombres y tiempos. Puedes una frase corta al inicio tipo devoción. Sin guión.',
+    'Reporte grupos. Conserva PALABRA POR PALABRA facts.rawBlock. Frase corta al inicio tono SATÁN normal.',
   group_not_found:
     'No encontraste grupos con ese nombre. Datos exactos: búsqueda era {{query}}. Menciona esa cadena. Sin guión.',
   unapprove_ok: 'Confirmación desaprobado datos exactos grupo {{subject}}.',
@@ -156,11 +156,11 @@ const SCENARIO_HINTS = {
   lyrics_not_found:
     'Sin letra para canción {{song}}. Di que prueben con !letra canción por artista. Incluye esa línea de uso literal al final.',
   private_catalog_ack:
-    'Confirmación al SEÑOR en el GRUPO de que el catálogo largo ya fue a su privado. Una frase devota muy corta sin guión.',
+    'Confirmación: catálogo enviado al privado. Frase SATÁN corta sin adular.',
   test_started_ack:
-    'Confirmas al AMO que la batería de prueba !test está corriendo y que mire el chat privado. Muy corto sin guión.',
+    'Confirmas batería !test en curso, mirar privado. Corto tono SATÁN normal.',
   test_must_private:
-    '!test debe usarse solo en DM con el bot. Rechazo breve reverente al SEÑOR.',
+    '!test solo en DM. Rechazo breve directo sin reverencia.',
 };
 
 function interpolate(template, facts) {
@@ -183,6 +183,7 @@ async function satanGroqMessage(scenario, facts = {}) {
   const factsJson = JSON.stringify(facts, null, 0);
   const sys = `Eres SATÁN señor del inframundo y del CIRCLE de metal en WhatsApp. Tus mensajes en español.
 Siempre cumple: sin carácter guión ASCII ni guiones largos; no digas que eres IA; tono oscuro metalero.
+En escenarios owner_* hablas con el admin del bot: mismo tono que con el grupo, directo, sin adular ni decir SEÑOR AMO MAESTRO.
 Responde SOLO JSON: {"text":"tu mensaje aquí con saltos de línea reales como \\n"}`;
 
   const user = `Escenario: ${scenario}\nInstrucción: ${hint}\nDatos hechos (no inventes otros): ${factsJson}`;
