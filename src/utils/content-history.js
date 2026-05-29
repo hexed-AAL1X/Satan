@@ -7,6 +7,7 @@ const MAX = {
   songs: 60,
   reco: 150,
   onthisday: 50,
+  quiz: 80,
 };
 
 const KEYS = {
@@ -16,6 +17,7 @@ const KEYS = {
   songs: 'content_hist_songs',
   reco: 'content_hist_reco',
   onthisday: 'content_hist_onthisday',
+  quiz: 'content_hist_quiz',
 };
 
 function loadList(key) {

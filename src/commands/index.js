@@ -32,7 +32,7 @@ function getGroq() {
 const recentlyRecommended = new Set();
 
 const { isForbiddenNonCircleGenre } = require('../utils/circle-genre-guard');
-const { satanGroqMessage, FB } = require('../handlers/groq-satan-copy');
+const { satanGroqMessage, FB, getRulesetMessage } = require('../handlers/groq-satan-copy');
 
 function getMessageContextInfo(msg) {
   const inner = msg?.message?.ephemeralMessage?.message ||
@@ -314,7 +314,7 @@ const CHAT_RESPONSES = [
   { triggers: ['death metal', 'dm'], reply: () => `DEATH METAL 💀 la brutalidad\nhecha ARTE 💀` },
   { triggers: ['gracias', 'thank'], reply: () => `para ESO 🔱 estamos\nGUERRERO 🔱` },
   { triggers: ['quien eres', 'que eres', 'eres un bot'], reply: () => `soy 👁️ la sombra que cuida este CIRCLE\nel que OBSERVA 👁️ el que ACTÚA 👁️` },
-  { triggers: ['reglas', 'rules'], reply: () => `LAS REGLAS ⚔️ del CIRCLE:\n\n⚔️ respeta a tus HERMANOS del metal\n☠️ no links de otros grupos 3 strikes y FUERA\n🤘 los APORTADORES son el alma de esto\n🖤 todo subgénero del metal es bienvenido\n💀 sin spam sin publicidad` },
+  { triggers: ['reglas', 'rules'], reply: () => getRulesetMessage() },
   { triggers: ['ayuda', 'help', 'comandos'], reply: () => `los COMANDOS 🔱 del CIRCLE:\n\n!rank ← tu rango y puntos\n!top ← ranking semanal\n!band [nombre] ← info de banda\n!trivia ← pregunta metal\n!recomienda [género] ← 3 bandas\n!ruleset ← reglas` },
 ];
 
@@ -503,8 +503,8 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     return await satanGroqMessage('top_body', { weekKey: getWeekKey(), dataBlock });
   }
 
-  if (command === '!ruleset' || command === '!reglas') {
-    return await satanGroqMessage('ruleset', { rulesBlock: FB.ruleset() });
+  if (command === '!ruleset' || command === '!reglas' || command === '!rules') {
+    return getRulesetMessage();
   }
 
   if (command === '!help' || command === '!ayuda' || command === '!comandos') {
@@ -528,7 +528,8 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
 
   // !metalquiz es oculto (no aparece en recordatorios) — usa el quiz de 3 preguntas con puntaje
   if (command === '!metalquiz') {
-    await startMetalQuiz(sock, jid);
+    const diff = args[0] && ['facil', 'medio', 'dificil'].includes(args[0].toLowerCase()) ? args[0].toLowerCase() : null;
+    await startMetalQuiz(sock, jid, { difficulty: diff });
     return null;
   }
 

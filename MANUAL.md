@@ -44,7 +44,7 @@ Todos los comandos funcionan en grupos donde el bot esté presente.
 | `!rank` · `!rango` | Tu rango y puntos | `!rank` |
 | `!top` · `!ranking` | Top 10 semanal del grupo | `!top` |
 | `!streak` | Tu racha de días aportando | `!streak` |
-| `!ruleset` · `!reglas` | Reglas del grupo | `!reglas` |
+| `!ruleset` · `!reglas` · `!rules` | Reglas del grupo (tono SATÁN, emojis fijos) | `!reglas` |
 | `!band [nombre]` | Info + imagen de una banda con links a YouTube y Spotify | `!band Mayhem` |
 | `!album [álbum] de [banda]` | Info + portada de un álbum | `!album Reign in Blood de Slayer` |
 | `!album [álbum]` | Igual pero sin especificar banda | `!album Master of Puppets` |
@@ -201,7 +201,7 @@ Cuando alguien sube de rango, el bot anuncia el ascenso.
 ### Metal Quiz (oculto)
 
 - **Viernes 7:30 PM** (1 ronda semanal; antes Lun/Mié/Vie × 2)
-- 3 preguntas seguidas
+- 3 preguntas Groq por dificultad (aleatoria en cron; `!metalquiz dificil` manual)
 - 5 pts por acertar, 15 pts bonus para el primero que acierte las 3
 - Avanza a la siguiente pregunta cuando alguien acierta
 
@@ -240,12 +240,13 @@ Todas las funciones automáticas se envían a **todos los grupos donde el bot es
 
 ### Metal Quiz (oculto, con puntos)
 
-- 3 preguntas consecutivas
+- 3 preguntas consecutivas **generadas por Groq** según dificultad (fácil / media / difícil)
 - Sin tiempo límite
 - **+5 pts** por cada respuesta correcta
 - **+15 pts bonus** al primero que conteste las 3 correctamente
-- Se ejecuta solo automáticamente los días configurados
-- Si no quieres responder usa el comando oculto `!metalquiz` para probarlo manualmente
+- Viernes 19:30 con dificultad aleatoria; manual: `!metalquiz [facil|medio|dificil]`
+- Historial anti-repetición — no vuelve a sacar la misma pregunta pronto
+- Si Groq falla, usa banco estático de respaldo (10 preguntas)
 
 ### Comportamiento
 
@@ -309,7 +310,7 @@ Tablas principales:
 - `users` — usuarios por grupo con puntos, rangos, strikes, racha
 - `contributions` — historial de aportes
 - `strikes` — historial de strikes
-- `trivia` — preguntas del banco
+- `trivia` / `metalquiz` — Groq por dificultad; respaldo estático si falla la IA
 - `bot_state` — estado interno (índices usados, grupos con presentación, etc.)
 
 ---

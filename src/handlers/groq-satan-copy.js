@@ -31,9 +31,7 @@ const FB = {
   top_empty: () => `☠️ Nadie ha aportado esta semana aún. Sean los primeros. 🤘`,
   top_body: (f) =>
     `${f.dataBlock}\n\n💀 se reinicia cada lunes ¿dónde estás tú? 🤘`,
-  ruleset: () =>
-    `📜 REGLAS DEL CIRCLE:\n\n⚔️ 1. Respeta a tus hermanos del metal\n🦇 2. No links de otros grupos de WhatsApp 3 strikes y BAN\n` +
-    `☠️ 3. Los APORTADORES son el alma del grupo\n🤘 4. Todo subgénero de metal es bienvenido\n🖤 5. Sin spam sin publicidad\n🔱 6. El bot modera automáticamente no te hagas el vivo`,
+  ruleset: () => getRulesetMessage(),
   help: () =>
     `👁️ *COMANDOS DEL CIRCLE* ⚔️\n\n` +
     `🎖️ *!rank* — tu rango y puntos actuales\n` +
@@ -108,7 +106,7 @@ const SCENARIO_HINTS = {
   top_body:
     'Escribe UNA frase corta de SATÁN como intro (1 línea, oscura). Luego pega EXACTO el bloque de datos que está en facts.dataBlock SIN modificar ninguna línea, emoji, medalla, número ni asterisco. Al final añade 1 frase corta de cierre. Sin guión.',
   ruleset:
-    'Reescribe las 6 reglas del CIRCLE que te paso en facts.rulesBlock con mismo significado mismo orden numbering puede variar wording SATÁN. Sin guión. No omitas ninguna regla.',
+    'OBSOLETO: no reescribir reglas. Usa getRulesetMessage() estático.',
   help:
     'Te paso lista exacta de comandos en facts.helpBlock. Debes reproducir esa lista ÍNTEGRA al final del mensaje (puedes añadir 1 línea SATÁN al inicio). Sin inventar comandos nuevos. Sin guión.',
   streak_none:
@@ -165,6 +163,26 @@ const SCENARIO_HINTS = {
 
 function interpolate(template, facts) {
   return String(template).replace(/\{\{(\w+)\}\}/g, (_, k) => (facts[k] != null ? String(facts[k]) : ''));
+}
+
+const RULESET_INTROS = [
+  '⛧ *REGLAS DEL INFRAMUNDO* ⛧\n_el CIRCLE observa cada palabra_ 👁️',
+  '👁️ *PACTO DE SANGRE DEL CIRCLE* 🩸\n_lee o sé devorado_ ☠️',
+  '🔱 *CÓDIGO DEL INFRAMUNDO* 🔱\n_SATÁN no negocia con los débiles_ ⛧',
+];
+
+const RULESET_BODY =
+  '⚔️ *1.* Honra a tus *HERMANOS* del metal — aquí el respeto pesa más que el volumen\n' +
+  '🦇 *2.* Cero links de otros grupos de WhatsApp — *3 strikes* y el inframundo te traga\n' +
+  '☠️ *3.* Los *APORTADORES* son la esencia — quien comparte sube, quien vampiriza cae\n' +
+  '🤘 *4.* Todo subgénero del metal tiene su templo — doom black thrash death grind\n' +
+  '🖤 *5.* Prohibido spam y publicidad — no conviertas el culto en mercado\n' +
+  '🔱 *6.* SATÁN vigila y modera — no intentes engañar al sistema _te estamos viendo_ 💀';
+
+/** Reglas fijas con tono SATÁN — sin Groq (la IA las dejaba planas y sin emojis). */
+function getRulesetMessage() {
+  const intro = RULESET_INTROS[Math.floor(Math.random() * RULESET_INTROS.length)];
+  return `${intro}\n\n${RULESET_BODY}\n\n_viola las reglas y el inframundo te reclama_ ⛧`;
 }
 
 /**
@@ -231,6 +249,7 @@ async function getCommandHelpMessage() {
 module.exports = {
   satanGroqMessage,
   getCommandHelpMessage,
+  getRulesetMessage,
   stripDashes,
   FB,
 };

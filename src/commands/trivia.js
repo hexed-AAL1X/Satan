@@ -2,6 +2,8 @@ const Groq = require('groq-sdk');
 const { TRIVIA } = require('../../data/content');
 const { getState, setState, addContribution, upsertUser } = require('../db');
 const { sendWithTyping } = require('../utils/typing');
+const { parseGroqJsonObject } = require('../utils/groq-json');
+const { KEYS, MAX, remember, exclusionBlock, loadList } = require('../utils/content-history');
 
 const PTS_FIRST_CORRECT = 5;
 const PTS_COMPLETE_BONUS = 15;
@@ -54,44 +56,168 @@ USA SOLO ESTOS EMOJIS: ${e1} ${e2} — ponlos dentro del texto. Oscuro, sarcást
   }
 }
 
-// --- !trivia --- (una pregunta, 30s, dificultad opcional, sin puntaje)
+// --- Trivia / Metal Quiz — generación Groq ---
 const DIFF_LABELS = { facil: 'fácil', medio: 'media', dificil: 'difícil' };
-const activeSingleTrivia = new Map(); // groupJid → { question, answer, timeout, answered }
+const DIFF_KEYS = ['facil', 'medio', 'dificil'];
 
-async function generateTriviaQuestion(difficulty) {
+function resolveDifficulty(difficulty) {
+  const key = String(difficulty || '').toLowerCase();
+  return DIFF_LABELS[key] || DIFF_LABELS[DIFF_KEYS[Math.floor(Math.random() * DIFF_KEYS.length)]];
+}
+
+function normalizeTriviaQuestion(data, difficultyLabel) {
+  if (!data?.question || !Array.isArray(data.options) || data.options.length !== 3) return null;
+  const answer = typeof data.answer === 'number' ? data.answer : parseInt(data.answer, 10);
+  if (![0, 1, 2].includes(answer)) return null;
+
+  const options = data.options.map((o, i) => {
+    const letter = ['A', 'B', 'C'][i];
+    const stripped = String(o).replace(/^[A-C]\)\s*/i, '').trim();
+    if (!stripped) return null;
+    return `${letter}) ${stripped}`;
+  });
+  if (options.some((o) => !o)) return null;
+
+  const question = String(data.question).trim();
+  if (question.length < 12) return null;
+
+  return {
+    question,
+    options,
+    answer,
+    explanation: String(data.explanation || '').trim() || 'respuesta correcta ☠️',
+    difficulty: data.difficulty || difficultyLabel || null,
+  };
+}
+
+function isDuplicateQuestion(question, seen) {
+  const key = String(question || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 100);
+  if (!key) return true;
+  if (seen.has(key)) return true;
+  const recent = loadList(KEYS.quiz).map((x) => String(x).toLowerCase());
+  return recent.some((r) => r.includes(key.slice(0, 40)) || key.includes(r.slice(0, 40)));
+}
+
+async function groqTriviaJson(prompt, maxTokens = 220) {
   const groq = getGroq();
   if (!groq) return null;
-  const diffs = ['fácil', 'media', 'difícil'];
-  const diff = DIFF_LABELS[difficulty] || diffs[Math.floor(Math.random() * diffs.length)];
-
-  const prompt = `Genera una pregunta de trivia sobre metal de dificultad "${diff}".
-Responde ÚNICAMENTE con JSON válido sin texto extra ni markdown:
-{"question":"...","options":["A) ...","B) ...","C) ..."],"answer":0,"difficulty":"${diff}","explanation":"breve explicación de la respuesta correcta"}
-donde "answer" es el índice (0=A, 1=B, 2=C) de la opción correcta.`;
   try {
     const r = await Promise.race([
       groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.8,
-        max_tokens: 200,
+        temperature: 0.85,
+        max_tokens: maxTokens,
       }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 12000)),
     ]);
     const raw = r.choices[0]?.message?.content?.trim();
-    const jsonMatch = raw?.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    return JSON.parse(jsonMatch[0]);
-  } catch { return null; }
+    return parseGroqJsonObject(raw) || (() => {
+      const jsonMatch = raw?.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return null;
+      try { return JSON.parse(jsonMatch[0]); } catch { return null; }
+    })();
+  } catch {
+    return null;
+  }
+}
+
+async function generateTriviaQuestion(difficulty, extraExclude = '') {
+  const diff = resolveDifficulty(difficulty);
+  const exclude = exclusionBlock(KEYS.quiz, 'Preguntas ya usadas (NO repetir tema ni redacción)', 35);
+
+  const prompt = `Genera UNA pregunta de trivia sobre metal extremo/rock pesado de dificultad "${diff}".
+Debe ser factual y verificable. Evita datos ambiguos o fechas inventadas.
+${exclude}${extraExclude}
+JSON válido únicamente sin markdown:
+{"question":"...","options":["A) ...","B) ...","C) ..."],"answer":0,"difficulty":"${diff}","explanation":"breve explicación de la respuesta correcta"}
+"answer" es el índice (0=A, 1=B, 2=C) de la opción correcta.`;
+
+  const data = await groqTriviaJson(prompt, 220);
+  return normalizeTriviaQuestion(data, diff);
+}
+
+async function generateMetalQuizQuestions(difficulty) {
+  const diff = resolveDifficulty(difficulty);
+  const exclude = exclusionBlock(KEYS.quiz, 'Preguntas ya usadas (NO repetir tema ni redacción)', 40);
+  const seen = new Set();
+  const out = [];
+
+  const batchPrompt = `Genera EXACTAMENTE 3 preguntas DIFERENTES de trivia sobre metal extremo/rock pesado.
+Las 3 deben ser de dificultad "${diff}". Cada una factual y verificable.
+Mezcla subgéneros (thrash, death, black, doom, grind, etc.) y regiones distintas.
+${exclude}
+JSON válido únicamente:
+{"questions":[
+  {"question":"...","options":["A) ...","B) ...","C) ..."],"answer":0,"explanation":"..."},
+  {"question":"...","options":["A) ...","B) ...","C) ..."],"answer":1,"explanation":"..."},
+  {"question":"...","options":["A) ...","B) ...","C) ..."],"answer":2,"explanation":"..."}
+]}
+"answer" es índice 0=A, 1=B, 2=C. Las 3 preguntas deben ser distintas entre sí.`;
+
+  const batch = await groqTriviaJson(batchPrompt, 650);
+  const rawList = Array.isArray(batch?.questions) ? batch.questions : [];
+
+  for (const item of rawList) {
+    const q = normalizeTriviaQuestion(item, diff);
+    if (!q || isDuplicateQuestion(q.question, seen)) continue;
+    seen.add(q.question.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 100));
+    out.push(q);
+    if (out.length >= 3) break;
+  }
+
+  for (let attempt = 0; out.length < 3 && attempt < 4; attempt += 1) {
+    const extra = out.length
+      ? `\nYa generaste estas (NO repetir): ${out.map((q) => q.question.slice(0, 60)).join(' · ')}.`
+      : '';
+    const q = await generateTriviaQuestion(difficulty, extra);
+    if (!q || isDuplicateQuestion(q.question, seen)) continue;
+    seen.add(q.question.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 100));
+    out.push(q);
+  }
+
+  return out.length >= 3 ? out.slice(0, 3) : null;
+}
+
+function rememberQuizQuestions(questions) {
+  for (const q of questions) {
+    remember(KEYS.quiz, q.question.slice(0, 120), MAX.quiz);
+  }
 }
 
 function getRandomStaticTrivia() {
   const lastIdx = parseInt(getState('last_single_trivia_idx') || '-1');
-  const candidates = TRIVIA.map((_, i) => i).filter(i => i !== lastIdx);
-  const idx = candidates[Math.floor(Math.random() * candidates.length)];
+  const recent = loadList(KEYS.quiz).map((x) => String(x).toLowerCase());
+  const candidates = TRIVIA.map((_, i) => i).filter((i) => {
+    if (i === lastIdx) return false;
+    const q = TRIVIA[i].question.toLowerCase();
+    return !recent.some((r) => r.includes(q.slice(0, 30)) || q.includes(r.slice(0, 30)));
+  });
+  const pool = candidates.length ? candidates : TRIVIA.map((_, i) => i).filter((i) => i !== lastIdx);
+  const idx = pool[Math.floor(Math.random() * pool.length)];
   setState('last_single_trivia_idx', idx);
   return TRIVIA[idx];
 }
+
+function pickThreeStaticQuestions() {
+  const recent = loadList(KEYS.quiz).map((x) => String(x).toLowerCase());
+  const shuffled = [...TRIVIA].sort(() => Math.random() - 0.5);
+  const picked = [];
+  for (const q of shuffled) {
+    const key = q.question.toLowerCase();
+    if (recent.some((r) => r.includes(key.slice(0, 30)) || key.includes(r.slice(0, 30)))) continue;
+    picked.push(q);
+    if (picked.length >= 3) break;
+  }
+  if (picked.length < 3) {
+    const rest = shuffled.filter((q) => !picked.includes(q));
+    picked.push(...rest.slice(0, 3 - picked.length));
+  }
+  return picked.slice(0, 3);
+}
+
+// --- !trivia --- (una pregunta, 30s, dificultad opcional, sin puntaje)
+const activeSingleTrivia = new Map();
 
 async function startTrivia(sock, groupJid, difficulty) {
   if (activeSingleTrivia.has(groupJid) || activeMetalQuiz.has(groupJid)) {
@@ -100,8 +226,9 @@ async function startTrivia(sock, groupJid, difficulty) {
   }
 
   let q;
-  if (difficulty) {
+  if (getGroq()) {
     q = await generateTriviaQuestion(difficulty);
+    if (q) remember(KEYS.quiz, q.question.slice(0, 120), MAX.quiz);
   }
   if (!q) q = getRandomStaticTrivia();
 
@@ -149,11 +276,6 @@ async function checkSingleTriviaAnswer(sock, groupJid, senderJid, senderName, te
 // --- !metalquiz --- (3 preguntas, sin timer, con puntaje, usado en scheduler y comando oculto)
 const activeMetalQuiz = new Map();
 
-function pickThreeQuestions() {
-  const shuffled = [...TRIVIA].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, 3);
-}
-
 function buildQuestionMsg(q, num) {
   return `☠️ PREGUNTA ${num}/3 ☠️\n\n${q.question}\n\n${q.options.join('\n')}\n\n_responde A, B o C 💀_`;
 }
@@ -186,17 +308,30 @@ async function startMetalQuiz(sock, groupJid, opts = {}) {
     }
   }
 
-  const questions = pickThreeQuestions();
+  if (getGroq()) {
+    await sendWithTyping(sock, groupJid, '👁️ generando preguntas del INFRAMUNDO ⚔️');
+  }
+
+  let questions = getGroq() ? await generateMetalQuizQuestions(opts.difficulty) : null;
+  let source = 'groq';
+  if (!questions || questions.length < 3) {
+    questions = pickThreeStaticQuestions();
+    source = 'static';
+  } else {
+    rememberQuizQuestions(questions);
+  }
+
+  const diffLabel = questions[0]?.difficulty ? ` · dificultad ${questions[0].difficulty}` : '';
   activeMetalQuiz.set(groupJid, {
     questions,
     currentQ: 0,
     answered: new Set(),
-    correctlyAnswered: new Set(), // set de números de pregunta que ya alguien acertó
+    correctlyAnswered: new Set(),
     scores: new Map(),
     firstFinisher: null,
   });
 
-  const intro = `⚔️ METAL QUIZ 3 PREGUNTAS ⚔️\n\nPrimero en acertar las 3 gana BONUS de ${PTS_COMPLETE_BONUS} pts 🔱\nCada respuesta correcta suma ${PTS_FIRST_CORRECT} pts ☠️\nSin tiempo límite 💀`;
+  const intro = `⚔️ METAL QUIZ 3 PREGUNTAS${diffLabel} ⚔️\n\nPrimero en acertar las 3 gana BONUS de ${PTS_COMPLETE_BONUS} pts 🔱\nCada respuesta correcta suma ${PTS_FIRST_CORRECT} pts ☠️\nSin tiempo límite 💀${source === 'static' ? '\n_respaldo local, Groq no respondió a tiempo_' : ''}`;
   await sendWithTyping(sock, groupJid, intro);
   await new Promise(r => setTimeout(r, 1500));
   await sendWithTyping(sock, groupJid, buildQuestionMsg(questions[0], 1));
@@ -223,7 +358,6 @@ async function checkMetalQuizAnswer(sock, groupJid, senderJid, senderName, text)
   const score = session.scores.get(senderJid);
 
   if (answerIdx === q.answer) {
-    // Primero en acertar = nadie había acertado esta pregunta aún
     const firstThisQ = !session.correctlyAnswered.has(session.currentQ);
     session.correctlyAnswered.add(session.currentQ);
 
@@ -252,7 +386,6 @@ async function checkMetalQuizAnswer(sock, groupJid, senderJid, senderName, text)
       });
     }
 
-    // Avanzar pregunta cuando el primero acierte
     if (firstThisQ) {
       await new Promise(r => setTimeout(r, 1000));
       await sendWithTyping(sock, groupJid, `📖 ${q.explanation}`);

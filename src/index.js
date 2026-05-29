@@ -633,15 +633,8 @@ async function startBot() {
             }
 
             if (url === '/test/ruleset') {
-              sendWithTyping(sock, jid,
-                `📜 *REGLAS del CIRCLE* ⛧\n\n` +
-                `☠️ *1.* nada de links a otros grupos de WhatsApp\n` +
-                `🔱 *2.* respeto entre miembros del CIRCLE\n` +
-                `💀 *3.* aporta música o calla en el INFRAMUNDO\n` +
-                `⚔️ *4.* 3 strikes y el CIRCLE te devora\n` +
-                `🦇 *5.* los admins son la voz de SATÁN 🖤\n\n` +
-                `_viola las reglas y el inframundo te reclama_ ⛧`
-              ).catch(console.error);
+              const { getRulesetMessage } = require('./handlers/groq-satan-copy');
+              sendWithTyping(sock, jid, getRulesetMessage()).catch(console.error);
               res.writeHead(200); res.end('ok'); return;
             }
 

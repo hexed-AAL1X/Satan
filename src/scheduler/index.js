@@ -609,7 +609,9 @@ function setupScheduler(arg) {
 
   // Metal Quiz viernes 7:30PM (1 slot; antes Lun/Mié/Vie × 2)
   cron.schedule('30 19 * * 5', safe(async (sock) => {
-    await forEachGroup(sock, async (gid) => startMetalQuiz(sock, gid, { forceReplace: true }), 1500, 'quiz-viernes');
+    const diffs = ['facil', 'medio', 'dificil'];
+    const difficulty = diffs[Math.floor(Math.random() * diffs.length)];
+    await forEachGroup(sock, async (gid) => startMetalQuiz(sock, gid, { forceReplace: true, difficulty }), 1500, 'quiz-viernes');
   }), { timezone: 'America/Lima' });
 
   // Inactividad: cada 2h, umbral 8h, ventana 9–22
