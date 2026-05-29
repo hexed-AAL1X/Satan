@@ -1,13 +1,20 @@
 const cron = require('node-cron');
 const crypto = require('crypto');
 const Groq = require('groq-sdk');
-const { ALBUMS, BANDS, CURIOSITIES, SONGS, ANNIVERSARIES } = require('../../data/content');
+const { ANNIVERSARIES } = require('../../data/content');
 const { buildRankingMessage } = require('./ranking');
 const { startMetalQuiz } = require('../commands/trivia');
 const { getState, setState, getMonthlyRanking, resetMonthlyPoints, getPreviousWeekWinner, getWeekKey } = require('../db');
 const { sendWithTyping } = require('../utils/typing');
 const { sendWelcomeStickers, sendMorningStickers, getStickerFiles } = require('../handlers/stickers');
 const { getAlbumArtworkSafe, getBandImageSafe } = require('../utils/images');
+const {
+  getDailyAlbum,
+  getDailyBand,
+  getDailyCuriosity,
+  getDailySong,
+  getDailyOnThisDay,
+} = require('./daily-groq-content');
 
 // Estado global de battles activos por grupo
 const activeBattles = new Map();
@@ -50,97 +57,61 @@ async function generateBuenosDias() {
   } catch { return null; }
 }
 
-// --- Helpers ---
-function pickByIndex(arr, idx) {
-  return arr[((idx % arr.length) + arr.length) % arr.length];
-}
-
-// Toma hasta `maxTry` candidatos distintos al último usado
-function pickCandidates(arr, stateKey, maxTry) {
-  const lastIdx = parseInt(getState(stateKey) || '-1');
-  const candidates = arr.map((_, i) => i).filter(i => i !== lastIdx);
-  const shuffled = [...candidates].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, maxTry).map(i => ({ item: arr[i], idx: i }));
-}
-
-function pickRandom(arr, stateKey) {
-  const lastIdx = parseInt(getState(stateKey) || '-1');
-  const candidates = arr.map((_, i) => i).filter(i => i !== lastIdx);
-  const idx = candidates[Math.floor(Math.random() * candidates.length)];
-  setState(stateKey, idx);
-  return arr[idx];
-}
-
-// --- Álbum del día con imagen obligatoria ---
-// Prueba hasta 5 álbumes distintos hasta encontrar uno con portada
+// --- Helpers --- (Groq + historial persistente, una pieza por fecha Perú) ---
 async function sendAlbumDia(sock, jid) {
-  const candidates = pickCandidates(ALBUMS, 'last_album_idx', 5);
+  const a = await getDailyAlbum();
+  if (!a) return;
 
-  for (const { item: a, idx } of candidates) {
-    const imgUrl = await getAlbumArtworkSafe(a.band, a.title, 7000);
-    if (!imgUrl) continue;
+  const imgUrl = await getAlbumArtworkSafe(a.band, a.title, 7000);
+  const ytLink = `https://www.youtube.com/results?search_query=${encodeURIComponent(a.band + ' ' + a.title + ' full album')}`;
+  const caption =
+    `el ÁLBUM 🔱 de hoy:\n\n*${a.title}* ${a.band}${a.year ? ` (${a.year})` : ''}\nGénero 🖤 ${a.genre || 'metal'}\n\n${a.question || '¿Lo has escuchado?'} ⚔️\n\n🔗 ${ytLink}`;
 
-    setState('last_album_idx', idx);
-    const ytLink = `https://www.youtube.com/results?search_query=${encodeURIComponent(a.band + ' ' + a.title + ' full album')}`;
-    const caption =
-      `el ÁLBUM 🔱 de hoy:\n\n*${a.title}* ${a.band} (${a.year})\nGénero 🖤 ${a.genre}\n\n${a.question} ⚔️\n\n🔗 ${ytLink}`;
-    try {
+  try {
+    if (imgUrl) {
       await sock.sendMessage(jid, { image: { url: imgUrl }, caption });
-    } catch {
+    } else {
       await sendWithTyping(sock, jid, caption);
     }
-    return;
+  } catch {
+    await sendWithTyping(sock, jid, caption);
   }
-
-  // Si ninguno tiene imagen, manda el último candidato sin imagen
-  const fallback = candidates[0]?.item || ALBUMS[0];
-  const a = fallback;
-  setState('last_album_idx', candidates[0]?.idx ?? 0);
-  const ytLink = `https://www.youtube.com/results?search_query=${encodeURIComponent(a.band + ' ' + a.title + ' full album')}`;
-  await sendWithTyping(sock, jid,
-    `el ÁLBUM 🔱 de hoy:\n\n*${a.title}* ${a.band} (${a.year})\nGénero 🖤 ${a.genre}\n\n${a.question} ⚔️\n\n🔗 ${ytLink}`
-  );
 }
 
-// --- Banda del día con imagen obligatoria ---
+// --- Banda del día ---
 async function sendBandaDia(sock, jid) {
-  const candidates = pickCandidates(BANDS, 'last_band_idx', 5);
+  const b = await getDailyBand();
+  if (!b) return;
 
-  for (const { item: b, idx } of candidates) {
-    const imgUrl = await getBandImageSafe(b.name, 7000);
-    if (!imgUrl) continue;
-
-    setState('last_band_idx', idx);
-    const ytLink = `https://www.youtube.com/results?search_query=${encodeURIComponent(b.name + ' metal')}`;
-    const spLink = `https://open.spotify.com/search/${encodeURIComponent(b.name)}`;
-    const caption =
-      `la BANDA ☠️ del día:\n\n*${b.name}* ${b.country}\nGénero 💀 ${b.genre} | Formada en ${b.formed}\nÁlbumes clave 🦇 ${b.albums.slice(0, 3).join(', ')}\n\n_${b.fact}_\n\n🔗 YouTube: ${ytLink}\n🎧 Spotify: ${spLink}`;
-    try {
-      await sock.sendMessage(jid, { image: { url: imgUrl }, caption });
-    } catch {
-      await sendWithTyping(sock, jid, caption);
-    }
-    return;
-  }
-
-  // Fallback sin imagen
-  const b = candidates[0]?.item || BANDS[0];
-  setState('last_band_idx', candidates[0]?.idx ?? 0);
+  const imgUrl = await getBandImageSafe(b.name, 7000);
   const ytLink = `https://www.youtube.com/results?search_query=${encodeURIComponent(b.name + ' metal')}`;
   const spLink = `https://open.spotify.com/search/${encodeURIComponent(b.name)}`;
-  await sendWithTyping(sock, jid,
-    `la BANDA ☠️ del día:\n\n*${b.name}* ${b.country}\nGénero 💀 ${b.genre} | Formada en ${b.formed}\nÁlbumes clave 🦇 ${b.albums.slice(0, 3).join(', ')}\n\n_${b.fact}_\n\n🔗 YouTube: ${ytLink}\n🎧 Spotify: ${spLink}`
-  );
+  const albumsLine = (b.albums || []).slice(0, 3).join(', ');
+  const caption =
+    `la BANDA ☠️ del día:\n\n*${b.name}* ${b.country || ''}\nGénero 💀 ${b.genre || 'metal'}${b.formed ? ` | Formada en ${b.formed}` : ''}\n` +
+    (albumsLine ? `Álbumes clave 🦇 ${albumsLine}\n\n` : '\n') +
+    (b.fact ? `_${b.fact}_\n\n` : '') +
+    `🔗 YouTube: ${ytLink}\n🎧 Spotify: ${spLink}`;
+
+  try {
+    if (imgUrl) {
+      await sock.sendMessage(jid, { image: { url: imgUrl }, caption });
+    } else {
+      await sendWithTyping(sock, jid, caption);
+    }
+  } catch {
+    await sendWithTyping(sock, jid, caption);
+  }
 }
 
-function buildCuriosityMessage() {
-  const c = pickRandom(CURIOSITIES, 'last_curiosity_idx');
-  return `CURIOSIDAD 👁️ del metal:\n\n_${c}_\n\n¿lo sabías? ⚔️ deja tu reacción 🤘`;
+async function buildCuriosityMessage() {
+  const c = await getDailyCuriosity();
+  return `CURIOSIDAD 👁️ del metal:\n\n_${c?.text || 'el inframundo guarda secretos'}_\n\n¿lo sabías? ⚔️ deja tu reacción 🤘`;
 }
 
-function buildSongMessage() {
-  const s = pickRandom(SONGS, 'last_song_idx');
-  return `la CANCIÓN ⛧ del día:\n\n*${s.title}* ${s.band}\n\n🩸 _${s.fact}_\n\n¿la conocías? ☠️`;
+async function buildSongMessage() {
+  const s = await getDailySong();
+  return `la CANCIÓN ⛧ del día:\n\n*${s?.title || '?'}* ${s?.band || ''}\n\n🩸 _${s?.fact || ''}_\n\n¿la conocías? ☠️`;
 }
 
 // Envía el contenido diario según el día de la semana (zona horaria Perú)
@@ -151,11 +122,11 @@ async function sendDailyContent(sock, jid) {
   switch (day) {
     case 1: return sendBandaDia(sock, jid); // Lunes: banda (también va ranking 9:05)
     case 2: return sendAlbumDia(sock, jid);
-    case 3: return sendWithTyping(sock, jid, buildCuriosityMessage());
+    case 3: return sendWithTyping(sock, jid, await buildCuriosityMessage());
     case 4: return sendBandaDia(sock, jid);
     case 5: return sendAlbumDia(sock, jid);
-    case 6: return sendWithTyping(sock, jid, buildSongMessage());
-    case 0: return sendWithTyping(sock, jid, buildCuriosityMessage());
+    case 6: return sendWithTyping(sock, jid, await buildSongMessage());
+    case 0: return sendWithTyping(sock, jid, await buildCuriosityMessage());
     default: return sendBandaDia(sock, jid);
   }
 }
@@ -231,47 +202,11 @@ function checkAnniversaries() {
   }));
 }
 
-async function generateOnThisDay(month, day) {
-  const groq = getGroq();
-  if (!groq) return null;
-  const monthNames = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-  const monthName = monthNames[parseInt(month) - 1];
-  try {
-    const r = await Promise.race([
-      groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content:
-          `Eres SATÁN hablando a un grupo de metal. Hoy es ${day} de ${monthName}. Encuentra UN hecho histórico real del mundo del metal que ocurrió esta fecha (cualquier año): muerte de músico, lanzamiento legendario, concierto histórico, etc.
-Si no hay nada relevante para esta fecha exacta, responde: NO_FOUND
-Si encuentras algo, responde ÚNICAMENTE este JSON (sin markdown):
-{"text":"el mensaje 2-3 líneas estilo SATÁN con PALABRAS COMPLETAS en mayúsculas para énfasis sin guiones emojis de ☠️ ⚔️ 🦇 💀 👁️ 🩸 ⛧ 🤘 🔱 🖤","artist":"nombre exacto del artista o banda principal del hecho"}` }],
-        temperature: 0.7,
-        max_tokens: 200,
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 9000)),
-    ]);
-    const raw = r.choices[0]?.message?.content?.trim();
-    if (!raw || raw.includes('NO_FOUND')) return null;
-    // Extraer JSON del output
-    const jsonMatch = raw.match(/\{[\s\S]*?\}/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.text && !parsed.text.includes('NO_FOUND')) {
-          return { text: parsed.text.replace(/[—–-]+/g, ''), artist: parsed.artist || null };
-        }
-      } catch {}
-    }
-    // Si no hay JSON válido, usar el texto directo como fallback
-    return { text: raw.replace(/[—–-]+/g, ''), artist: null };
-  } catch { return null; }
-}
-
 async function sendOnThisDay(sock, jid) {
   const today = getTodayMMDD();
   const [mm, dd] = today.split('-');
 
-  // Primero: aniversarios del día (con portada del álbum)
+  // Aniversarios fijos del calendario (solo si toca hoy)
   const anniversaries = checkAnniversaries();
   if (anniversaries.length > 0) {
     for (const a of anniversaries) {
@@ -289,13 +224,11 @@ async function sendOnThisDay(sock, jid) {
     }
   }
 
-  // Luego: hecho histórico via Groq (con imagen del artista)
-  const result = await generateOnThisDay(mm, dd);
+  const result = await getDailyOnThisDay(mm, dd);
   if (result?.text) {
     await new Promise(r => setTimeout(r, 1500));
     const header = `👁️ UN DÍA COMO HOY en el metal:\n\n${result.text}`;
 
-    // Buscar imagen del artista mencionado
     let artistImg = null;
     if (result.artist) {
       artistImg = await Promise.race([

@@ -1,7 +1,7 @@
 const Groq = require('groq-sdk');
 const https = require('https');
 const http = require('http');
-const { getUser, getWeeklyRanking, getWeekKey, muteUser, banUser } = require('../db');
+const { getUser, getWeeklyRanking, getWeekKey, muteUser, muteUserMultiJid, banUser } = require('../db');
 const { getLevelName, getLevelEmoji } = require('../scheduler/ranking');
 const { startTrivia, startMetalQuiz } = require('./trivia');
 const { sendWithTyping } = require('../utils/typing');
@@ -33,6 +33,20 @@ const recentlyRecommended = new Set();
 
 const { isForbiddenNonCircleGenre } = require('../utils/circle-genre-guard');
 const { satanGroqMessage, FB } = require('../handlers/groq-satan-copy');
+const { KEYS, remember, exclusionBlock, loadList } = require('../utils/content-history');
+
+// Hidratar historial de recomendaciones (persiste en SQLite)
+for (const b of loadList(KEYS.reco)) recentlyRecommended.add(b);
+
+const RECO_ANGLES = [
+  'prioriza escena LATINOAMÉRICA obscure sin repetir clichés',
+  'prioriza death/black EUROPEO de culto años 80-90',
+  'prioriza doom/sludge/stoner poco masivo',
+  'prioriza punk duro / crust / d-beat conectado al metal',
+  'prioriza folk/pagan/viking fuera de los nombres obvios',
+  'prioriza industrial/noise metal de nicho',
+  'prioriza bandas con menos de 15k oyentes mensuales si puedes',
+];
 
 /** Owner: +51 943 605 088 — JID donde se reenvía siempre el catálogo privado */
 const OWNER_PN = '51943605088';
@@ -90,8 +104,10 @@ async function sendOwnerPrivateCatalog(sock) {
 async function getUndergroundRecommendations(genre) {
   const groq = getGroq();
   if (!groq) return null;
+  const histBlock = exclusionBlock(KEYS.reco, 'Bandas YA recomendadas en este CIRCLE', 70);
+  const angle = RECO_ANGLES[Math.floor(Math.random() * RECO_ANGLES.length)];
   const alreadySeen = recentlyRecommended.size > 0
-    ? `NUNCA recomiendes estas bandas: ${[...recentlyRecommended].slice(-15).join(', ')}.`
+    ? `NUNCA recomiendes estas bandas: ${[...recentlyRecommended].slice(-25).join(', ')}.`
     : '';
 
   const banned = [
@@ -124,9 +140,10 @@ async function getUndergroundRecommendations(genre) {
 
   const prompt = `${alcance}
 
-Eres un experto dentro de ese CIRCLE únicamente. Recomienda exactamente ${isLatinDanceAsk ? '3 artistas (pueden ser solistas) o agrupaciones' : '3 bandas'} ${searchContext} que sean MUY poco conocidas, menos de 20 000 oyentes mensuales aprox cuando sea posible mencionar ese matiz en el why.
+Eres un experto dentro de ese CIRCLE únicamente. Ángulo de hoy: ${angle}.
+Recomienda exactamente ${isLatinDanceAsk ? '3 artistas (pueden ser solistas) o agrupaciones' : '3 bandas'} ${searchContext} que sean MUY poco conocidas, menos de 20 000 oyentes mensuales aprox cuando sea posible mencionar ese matiz en el why.
 Prioriza Latinoamérica Scandinavia Este Europa otros focos donde haya ESCENA seria.
-NUNCA recomiendes estas bandas: ${banned}. ${alreadySeen}
+NUNCA recomiendes estas bandas: ${banned}. ${alreadySeen}${histBlock}
 
 IMPORTANTE campo why en español sin traducir géneros al castellano (black metal doom metal siguen inglés cuando toque metal). Sin palabra "underground".
 
@@ -142,8 +159,8 @@ Responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin markdown:
       groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 1.0,
-        max_tokens: 400,
+        temperature: 1.05,
+        max_tokens: 450,
       }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
     ]);
@@ -151,7 +168,10 @@ Responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin markdown:
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return null;
     const bands = JSON.parse(jsonMatch[0]);
-    bands.forEach(b => recentlyRecommended.add(b.band));
+    bands.forEach(b => {
+      recentlyRecommended.add(b.band);
+      remember(KEYS.reco, b.band, 150);
+    });
     return bands;
   } catch (e) {
     console.error('[RECOMIENDA]', e.message?.slice(0, 60));
@@ -499,7 +519,18 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       return await satanGroqMessage('usage', { usage: '!mute @persona [horas]', example: '!mute @Juan 24' });
     }
     const hours = parseInt(args.find(a => /^\d+$/.test(a))) || 24;
-    muteUser(mentionedJid, hours, jid);
+    // Resolve all JID forms for this user from group metadata
+    const allJids = [mentionedJid];
+    if (groupMetadata?.participants) {
+      for (const p of groupMetadata.participants) {
+        if (p.id === mentionedJid || p.lid === mentionedJid) {
+          if (p.id && !allJids.includes(p.id)) allJids.push(p.id);
+          if (p.lid && !allJids.includes(p.lid)) allJids.push(p.lid);
+        }
+      }
+    }
+    console.log(`[MUTE] mentionedJid=${mentionedJid} allJids=${JSON.stringify(allJids)} group=${jid}`);
+    muteUserMultiJid(allJids, hours, jid);
     const targetKey = mentionedJid.split('@')[0];
     return {
       text: await satanGroqMessage('mute_ok', { targetKey, hours }),
