@@ -20,6 +20,7 @@ const { saveSticker, sendWelcomeStickers, sendMorningStickers, getStickerFiles }
 const { hasGroupLink, handleGroupLink } = require('./moderation/links');
 const { detectAndRegisterContribution, registerAlbumSession, shouldReact, shouldReactAudio, classifyMedia } = require('./contributions/detect');
 const { handleChatMessage, handleCommand, saveMemeFromMsg, handlePendingMenu } = require('./commands');
+const { checkTriviaAnswer } = require('./commands/trivia');
 const { pickReaction } = require('./utils/reaction-emojis');
 const { setupScheduler, updateLastMessage, registerBattleVote, registerPollVote, onBattlePollVote, getBattlePollKey, hasBattle } = require('./scheduler');
 const { getStoredMessage, getPollUpdateContent } = require('./scheduler/battle-polls');
