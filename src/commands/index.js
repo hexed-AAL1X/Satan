@@ -1,7 +1,7 @@
 const Groq = require('groq-sdk');
 const https = require('https');
 const http = require('http');
-const { getUser, getWeeklyRanking, getWeekKey, muteUserMultiJid, banUser } = require('../db');
+const { getUser, getUserBestMatch, getWeeklyRanking, getWeekKey, muteUserMultiJid, banUser } = require('../db');
 const { getLevelName, getLevelEmoji } = require('../scheduler/ranking');
 const { startTrivia, startMetalQuiz } = require('./trivia');
 const { sendWithTyping } = require('../utils/typing');
@@ -461,7 +461,8 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   }
 
   if (command === '!rank' || command === '!rango') {
-    const user = getUser(senderJid, jid);
+    const rankJids = resolveTargetJids(groupMetadata, senderJid);
+    const user = getUserBestMatch(rankJids.length ? rankJids : [senderJid], jid) || getUser(senderJid, jid);
     if (!user) return await satanGroqMessage('rank_none', { senderName });
     const emoji = getLevelEmoji(user.level);
     const levelName = getLevelName(user.level);
@@ -604,7 +605,8 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
   }
 
   if (command === '!streak') {
-    const user = getUser(senderJid, jid);
+    const streakJids = resolveTargetJids(groupMetadata, senderJid);
+    const user = getUserBestMatch(streakJids.length ? streakJids : [senderJid], jid) || getUser(senderJid, jid);
     if (!user) return await satanGroqMessage('streak_none', { senderName });
     const streak = user.streak || 0;
     if (streak === 0) return await satanGroqMessage('streak_0', { senderName });

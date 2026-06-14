@@ -95,6 +95,19 @@ function getUser(jid, groupId = '') {
   return getDb().prepare('SELECT * FROM users WHERE jid = ? AND group_id = ?').get(jid, groupId);
 }
 
+/** Resuelve usuario cuando WhatsApp usa LID distinto al JID de teléfono (misma persona, varias filas). */
+function getUserBestMatch(jids, groupId = '') {
+  const list = [...new Set((jids || []).filter(Boolean))];
+  if (!list.length) return null;
+  let best = null;
+  for (const jid of list) {
+    const u = getUser(jid, groupId);
+    if (!u) continue;
+    if (!best || u.level > best.level || (u.level === best.level && u.points > best.points)) best = u;
+  }
+  return best;
+}
+
 function addStrike(jid, reason, message, groupId = '') {
   const db = getDb();
   db.prepare(`INSERT INTO strikes (jid, group_id, reason, message) VALUES (?, ?, ?, ?)`).run(jid, groupId, reason, message || '');
@@ -314,6 +327,7 @@ module.exports = {
   getDb,
   upsertUser,
   getUser,
+  getUserBestMatch,
   addStrike,
   muteUser,
   muteUserMultiJid,
