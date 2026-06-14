@@ -2,8 +2,8 @@ const Groq = require('groq-sdk');
 const https = require('https');
 const http = require('http');
 const { getUser, getWeeklyRanking, getWeekKey, muteUserMultiJid, banUser } = require('../db');
-const { resolveUserForGroup, resolveTargetJids } = require('../utils/user-resolve');
-const { getLevelName, getLevelEmoji } = require('../scheduler/ranking');
+const { resolveUserForGroup, resolveTargetJids, applyRankByPhone } = require('../utils/user-resolve');
+const { getLevelName, getLevelEmoji, LEVELS } = require('../scheduler/ranking');
 const { startTrivia, startMetalQuiz } = require('./trivia');
 const { sendWithTyping } = require('../utils/typing');
 const { getAlbumArtworkSafe, getBandImageSafe } = require('../utils/images');
@@ -78,6 +78,19 @@ const RECO_ANGLES = [
 /** Owner: +51 943 605 088 — JID donde se reenvía siempre el catálogo privado */
 const OWNER_PN = '51943605088';
 const OWNER_PRIV_JID = `${OWNER_PN}@s.whatsapp.net`;
+
+const GROUP_ALIASES = {
+  desterrados: '120363409012888461@g.us',
+  'los desterrados del metal': '120363409012888461@g.us',
+  usurpers: '120363425107568553@g.us',
+  proof: '120363408517107270@g.us',
+};
+
+function resolveRankLevel(rankName) {
+  const q = String(rankName || '').toLowerCase().trim();
+  const idx = LEVELS.findIndex((l) => l.name && l.name.toLowerCase() === q);
+  return idx >= 1 ? { level: idx, points: LEVELS[idx].pts, name: LEVELS[idx].name } : null;
+}
 
 function getOwnerPrivateCatalogChunks() {
   return [
@@ -459,6 +472,32 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     return await satanGroqMessage('rank_card', { senderName, dataBlock });
   }
 
+  // Owner: asignar rango por teléfono (sincroniza LID automáticamente)
+  if (command === '!setrank' && isOwner) {
+    if (args.length < 2) {
+      return { text: 'Uso: !setrank <telefono> <Rango> [desterrados|usurpers|proof|jid_grupo]' };
+    }
+    const phone = args[0].replace(/\D/g, '');
+    let rankTokens = args.slice(1);
+    let groupId = jid.endsWith('@g.us') ? jid : (process.env.GROUP_ID || '');
+    const lastTok = rankTokens[rankTokens.length - 1]?.toLowerCase();
+    if (lastTok && (GROUP_ALIASES[lastTok] || lastTok.includes('@g.us'))) {
+      groupId = GROUP_ALIASES[lastTok] || lastTok;
+      rankTokens = rankTokens.slice(0, -1);
+    }
+    const rank = resolveRankLevel(rankTokens.join(' '));
+    if (!rank) {
+      return { text: `Rango desconocido. Ej: Black Knight, Warlord, Initiate\nDisponibles: ${LEVELS.filter(l => l.name).map(l => l.name).join(', ')}` };
+    }
+    if (!groupId) return { text: 'Falta grupo: manda el comando en el grupo o agrega desterrados al final.' };
+    try {
+      const { updated } = await applyRankByPhone(sock, phone, groupId, rank.level, rank.points);
+      return { text: `✓ *${phone}* → *${rank.name}* (nivel ${rank.level}, ${rank.points} pts)\nGrupo: ${groupId}\nJIDs: ${updated.join(', ')}` };
+    } catch (e) {
+      return { text: `Error setrank: ${e.message}` };
+    }
+  }
+
   if (command === '!top' || command === '!ranking') {
     const top = getWeeklyRanking(null, jid);
     if (!top.length) return await satanGroqMessage('top_empty');
@@ -677,6 +716,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       `!grupos — reporte completo (PRO/TRIAL/tiempo)`,
       `!privado — catálogo COMPLETO de todo lo que pasa por DM (~+51 943 605 088)`,
       `!aprobar — menú para aprobar un grupo (PRO permanente)`,
+      `!setrank <tel> <Rango> [grupo] — asignar rango manual (sincroniza LID)`,
       `!degradar — menú para bajar un grupo a TRIAL 12h`,
       `!expulsar — menú para sacar un grupo con despedida comercial`,
       ``,

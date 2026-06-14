@@ -21,6 +21,53 @@ function lidKey(jid) {
   return String(jid || '').split('@')[0].split(':')[0];
 }
 
+function lidsMatch(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return lidKey(a) === lidKey(b);
+}
+
+function normalizeLidJid(lid) {
+  if (!lid) return null;
+  if (lid.includes('@')) return lid;
+  return `${lid}@lid`;
+}
+
+async function applyRankByPhone(sock, phone, groupId, level, points, displayName) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) throw new Error('telefono invalido');
+  const db = getDb();
+  const phoneJid = `${digits}@s.whatsapp.net`;
+  upsertUser(phoneJid, displayName || digits, groupId);
+  db.prepare('UPDATE users SET level = ?, points = ? WHERE jid = ? AND group_id = ?')
+    .run(level, points, phoneJid, groupId);
+  const from = getUser(phoneJid, groupId);
+  const updated = [phoneJid];
+
+  if (sock?.onWhatsApp) {
+    try {
+      const [info] = await sock.onWhatsApp(digits);
+      const lidJid = normalizeLidJid(info?.lid);
+      if (lidJid) {
+        copyRankToJid(from, lidJid, groupId);
+        updated.push(lidJid);
+        console.log(`[SET-RANK] ${digits} → LID ${lidJid} nivel ${level}`);
+        const lidRows = db.prepare(`SELECT jid FROM users WHERE group_id = ? AND jid LIKE '%@lid'`).all(groupId);
+        for (const row of lidRows) {
+          if (!updated.includes(row.jid) && lidsMatch(lidJid, row.jid)) {
+            copyRankToJid(from, row.jid, groupId);
+            updated.push(row.jid);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[SET-RANK] onWhatsApp:', e.message);
+    }
+  }
+
+  return { from, updated };
+}
+
 function hasElevatedRank(user) {
   return user && (user.level > 1 || user.points > 0);
 }
@@ -47,7 +94,6 @@ async function matchPhoneRowToSender(sock, senderJid, groupId) {
   `).all(groupId);
   if (!phoneRows.length) return null;
 
-  const senderLid = lidKey(senderJid);
   for (const row of phoneRows) {
     const phone = row.jid.split('@')[0];
     let info;
@@ -57,9 +103,9 @@ async function matchPhoneRowToSender(sock, senderJid, groupId) {
       continue;
     }
     if (!info?.lid) continue;
-    const infoLid = lidKey(info.lid);
-    const infoLidJid = info.lid.includes('@') ? info.lid : `${info.lid}@lid`;
-    if (infoLid === senderLid || infoLidJid === senderJid) {
+    const infoLidJid = normalizeLidJid(info.lid);
+    if (lidsMatch(infoLidJid, senderJid) || lidsMatch(info.lid, senderJid)) {
+      console.log(`[RANK-LID] ${phone} → ${senderJid} (nivel ${row.level})`);
       return copyRankToJid(row, senderJid, groupId);
     }
   }
@@ -76,7 +122,12 @@ async function resolveUserForGroup(sock, senderJid, groupId, groupMetadata) {
     return copyRankToJid(best, senderJid, groupId);
   }
 
-  if (!hasElevatedRank(best)) {
+  if (senderJid?.includes('@lid')) {
+    const viaPhone = await matchPhoneRowToSender(sock, senderJid, groupId);
+    if (viaPhone && (!best || viaPhone.level > best.level || viaPhone.points > best.points)) {
+      best = viaPhone;
+    }
+  } else if (!hasElevatedRank(best)) {
     const viaPhone = await matchPhoneRowToSender(sock, senderJid, groupId);
     if (viaPhone) best = viaPhone;
   }
@@ -84,4 +135,4 @@ async function resolveUserForGroup(sock, senderJid, groupId, groupMetadata) {
   return best || getUser(senderJid, groupId);
 }
 
-module.exports = { resolveUserForGroup, resolveTargetJids, copyRankToJid };
+module.exports = { resolveUserForGroup, resolveTargetJids, copyRankToJid, applyRankByPhone };
