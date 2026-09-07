@@ -1,6 +1,13 @@
 node_modules/
 auth_info_baileys/
 .env
+.env.local
 *.log
 qr.png
-satan_bot.db
+*.db
+*.db-shm
+*.db-wal
+data/*.db
+data/*.db-shm
+data/*.db-wal
+Guion_*.md

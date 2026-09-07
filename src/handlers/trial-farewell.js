@@ -1,11 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const Groq = require('groq-sdk');
+const { ownerWaLink } = require('../config');
 
 const TRIAL_FIN_IMG = path.join(__dirname, '../../data/trial_fin.png');
-/** Imagen cuando reañaden al bot tras haber gastado ya la prueba (indignación) */
 const TRIAL_REINVITE_REJECT_IMG = path.join(__dirname, '../../data/trial_reinvite_rejected.png');
-const OWNER_CONTACT = '51943605088';
 
 let groqClient = null;
 function getGroq() {
@@ -34,7 +33,7 @@ function getTrialReinviteRejectedImageBuffer() {
 async function generateTrialExpiredCaption(groupLabel, trialHours) {
   const groq = getGroq();
   if (!groq) return null;
-  const wa = `wa.me/${OWNER_CONTACT}`;
+  const wa = ownerWaLink();
   const prompt = `Eres SATÁN señor del inframundo y guardián del CIRCLE de metal en WhatsApp.
 
 El periodo de PRUEBA GRATUITA de exactamente ${trialHours} horas en el grupo "${groupLabel}" acaba de TERMINAR por reloj oficial. Te vas del grupo ahora con despedida solemne e indignación fría.
@@ -91,7 +90,7 @@ Responde SOLO un JSON válido sin markdown ni texto extra: {"caption":"..."}`;
 async function generateSecondInviteRejectedCaption(groupLabel) {
   const groq = getGroq();
   if (!groq) return null;
-  const wa = `wa.me/${OWNER_CONTACT}`;
+  const wa = ownerWaLink();
   const prompt = `Eres SATÁN. El grupo "${groupLabel}" YA gastó su prueba gratuita única.
 
 Unos IMPERTINENTES te volvieron a meter pensando repetir gratis lo que YA se les ACABÓ. Mostrás INDIGNACIÓN y desprecio CONTROLADO: no sos un circo gratis en bucle para su comodidad.
@@ -157,7 +156,7 @@ async function sendTrialReinviteRejectedFarewell(sock, gid, opts) {
   }
   let caption = await generateSecondInviteRejectedCaption(name).catch(() => null);
   if (!caption && typeof getFallbackCaption === 'function') caption = getFallbackCaption();
-  if (!caption) caption = `👁️ otra INVOCACIÓN después de tiempo MUERTO ☠️ segunda ronda GRATUITA aquí NO EXISTE 🔥\n\n📞 *wa.me/${OWNER_CONTACT}*`;
+  if (!caption) caption = `👁️ otra INVOCACIÓN después de tiempo MUERTO ☠️ segunda ronda GRATUITA aquí NO EXISTE 🔥\n\n📞 *${ownerWaLink()}*`;
   const img = getTrialReinviteRejectedImageBuffer();
   try {
     if (img && img.length) await sock.sendMessage(gid, { image: img, caption });
@@ -181,7 +180,7 @@ async function sendTrialExpiredFarewell(sock, gid, opts) {
   } catch (_) {}
   let caption = await generateTrialExpiredCaption(groupName, trialHours).catch(() => null);
   if (!caption && typeof getFallbackCaption === 'function') caption = getFallbackCaption();
-  if (!caption) caption = '⌛ tiempo AGOTADO 🔱 contacten al GUARDIÁN 📞 *wa.me/51943605088* ☠️';
+  if (!caption) caption = `⌛ tiempo AGOTADO 🔱 contacten al GUARDIÁN 📞 *${ownerWaLink()}* ☠️`;
   const img = getTrialFinImageBuffer();
   try {
     if (img && img.length) await sock.sendMessage(gid, { image: img, caption });

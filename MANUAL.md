@@ -27,8 +27,8 @@
 
 | Rol | Número | Notas |
 |-----|--------|-------|
-| **Bot** | `+51 937 761 964` | Cuenta de WhatsApp del bot |
-| **Owner** | `+51 943 605 088` | Único autorizado para añadir el bot a grupos y gestionar stickers/memes |
+| **Bot** | `BOT_NUMBER` en `.env` | Cuenta de WhatsApp del bot |
+| **Owner** | `OWNER_NUMBER` en `.env` | Unico autorizado para anadir el bot a grupos y gestionar stickers/memes |
 
 Cualquier otra persona que añada el bot a un grupo recibe despedida dramática y el bot sale automáticamente.
 
@@ -65,7 +65,7 @@ Cuando hay una trivia activa, escribe solo la letra: `A`, `B` o `C`.
 
 > Solo funcionan si quien los escribe es:
 > - **Admin del grupo** en WhatsApp, o
-> - El **owner** del bot (`+51 943 605 088`)
+> - El **owner** del bot (`OWNER_NUMBER`)
 
 | Comando | Qué hace | Ejemplo |
 |---------|----------|---------|
@@ -278,7 +278,7 @@ Si alguien responde a un mensaje del bot con un insulto, el bot reacciona con em
 
 ## 11. Cuando el bot se une a un grupo
 
-### Si lo añade el owner (`+51 943 605 088`)
+### Si lo anade el owner (`OWNER_NUMBER`)
 
 1. El bot manda una presentación épica generada por IA con una imagen imponente de Satán
 2. Se queda en el grupo
@@ -321,29 +321,30 @@ En Railway → **Variables**:
 
 | Variable | Valor | Descripción |
 |----------|-------|-------------|
-| `BOT_NUMBER` | `51937761964` | Número del bot sin + |
-| `GROUP_ID` | (cualquiera de los reales) | Grupo "principal" para fallback de scheduler |
+| `BOT_NUMBER` | (sin +) | Numero del bot |
+| `OWNER_NUMBER` | (sin +) | Numero del owner |
+| `GROUP_ID` | (cualquiera de los reales) | Grupo "principal" para fallback del scheduler |
 | `GROQ_API_KEY` | `gsk_...` | API de Groq para IA |
 | `PORT` | `3131` | Puerto HTTP |
 | `TZ` | `America/Lima` | Timezone |
-| `TEST_MODE` | `false` | Modo prueba |
+| `GROUP_ALIASES` | JSON opcional | Alias de grupos para `!setrank` |
 
 ---
 
 ## 14. Endpoints HTTP
 
-URL base: `https://satan-bot-production.up.railway.app`
+URL base: `https://tu-app.railway.app` (o tu dominio privado)
 
 | Método | Ruta | Qué hace |
 |--------|------|----------|
-| GET | `/qr` | Muestra el QR para vincular sesión |
+| GET | `/qr` | Muestra el QR para vincular sesion (**no expongas esta URL publicamente**) |
 | GET | `/test/presentacion` | Envía presentación al `GROUP_ID` |
 | GET | `/test/buenos-dias` | Envía buenos días al `GROUP_ID` |
 | GET | `/test/contenido` | Envía contenido diario al `GROUP_ID` |
 | POST | `/send` | Envía texto a un grupo (body: `{jid, text}`) |
 | POST | `/test/{tipo}` | Endpoints de prueba con body `{jid}` |
 
-Estos endpoints están pensados para debug. No requieren autenticación porque están detrás del dominio interno.
+Estos endpoints estan pensados para debug en despliegues privados. Protege el dominio o restringe acceso; `/qr` permite vincular la sesion de WhatsApp.
 
 ---
 

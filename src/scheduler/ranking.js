@@ -82,4 +82,4 @@ function buildRankingMessage(groupId = '', week = null) {
   return RANKING_POOL[idx](top, week || getWeekKey());
 }
 
-module.exports = { buildRankingMessage, getLevelName, getLevelEmoji };
+module.exports = { buildRankingMessage, getLevelName, getLevelEmoji, LEVELS };

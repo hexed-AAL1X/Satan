@@ -3,6 +3,7 @@ const https = require('https');
 const http = require('http');
 const { getUser, getWeeklyRanking, getWeekKey, muteUserMultiJid, banUser } = require('../db');
 const { resolveUserForGroup, resolveTargetJids, applyRankByPhone } = require('../utils/user-resolve');
+const { OWNER_NUMBER, ownerJid, resolveGroupAlias, ownerWaLink, parseGroupAliases } = require('../config');
 const { getLevelName, getLevelEmoji, LEVELS } = require('../scheduler/ranking');
 const { startTrivia, startMetalQuiz } = require('./trivia');
 const { sendWithTyping } = require('../utils/typing');
@@ -75,16 +76,8 @@ const RECO_ANGLES = [
   'prioriza bandas con menos de 15k oyentes mensuales si puedes',
 ];
 
-/** Owner: +51 943 605 088 — JID donde se reenvía siempre el catálogo privado */
-const OWNER_PN = '51943605088';
-const OWNER_PRIV_JID = `${OWNER_PN}@s.whatsapp.net`;
-
-const GROUP_ALIASES = {
-  desterrados: '120363409012888461@g.us',
-  'los desterrados del metal': '120363409012888461@g.us',
-  usurpers: '120363425107568553@g.us',
-  proof: '120363408517107270@g.us',
-};
+const OWNER_PN = OWNER_NUMBER;
+const OWNER_PRIV_JID = ownerJid();
 
 function resolveRankLevel(rankName) {
   const q = String(rankName || '').toLowerCase().trim();
@@ -95,8 +88,8 @@ function resolveRankLevel(rankName) {
 function getOwnerPrivateCatalogChunks() {
   return [
     `📜 *CATÁLOGO PRIVADO DEL SEÑOR*
-Número: *+51 943 605 088*
-JID: \`${OWNER_PRIV_JID}\`
+Owner configurado en *OWNER_NUMBER*
+JID: \`${OWNER_PRIV_JID || '(sin configurar)'}\`
 
 *1) Chat sin comando (texto normal)*
 SATÁN responde por *Groq*: contigo tono de AMO.
@@ -126,7 +119,7 @@ Ejemplos: *!rank* *!top* *!ruleset* *!help* *!recomienda* *!trivia* *!metalquiz*
     `*7) Avisos automáticos que te llegan al privado*
 Si un CIRCLE ya *gastó el trial* y vuelven a meter al bot sin acuerdo, recibes un DM de alerta citando el *nombre del grupo*, el texto del rechazo Groq/hardcodeado y contacto wa.me.`,
     `*8) Repetir este catálogo*
-*!privado* o *!catalogoprivado* (solo tú): vuelve a mandar estos mensajes a *+51 943 605 088*.
+*!privado* o *!catalogoprivado* (solo tú): vuelve a mandar estos mensajes a tu chat privado con el bot.
 *!test* (solo DM): batería LIVE de casi todas las funciones — tarda bastante ☠️`,
   ];
 }
@@ -481,8 +474,9 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     let rankTokens = args.slice(1);
     let groupId = jid.endsWith('@g.us') ? jid : (process.env.GROUP_ID || '');
     const lastTok = rankTokens[rankTokens.length - 1]?.toLowerCase();
-    if (lastTok && (GROUP_ALIASES[lastTok] || lastTok.includes('@g.us'))) {
-      groupId = GROUP_ALIASES[lastTok] || lastTok;
+    const aliases = parseGroupAliases();
+    if (lastTok && (aliases[lastTok] || lastTok.includes('@g.us'))) {
+      groupId = resolveGroupAlias(lastTok);
       rankTokens = rankTokens.slice(0, -1);
     }
     const rank = resolveRankLevel(rankTokens.join(' '));
@@ -698,7 +692,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
     return null;
   }
 
-  // --- Owner-only: catálogo de mensajes/fun. privadas → siempre +51 943 605 088 ---
+  // --- Owner-only: catálogo de mensajes/fun. privadas ---
   if (command === '!privado' || command === '!catalogoprivado') {
     if (!isOwner) return null;
     await sendOwnerPrivateCatalog(sock);
@@ -714,7 +708,7 @@ async function handleCommand(sock, jid, senderJid, senderName, text, groupMetada
       ``,
       `*GESTIÓN DE GRUPOS*`,
       `!grupos — reporte completo (PRO/TRIAL/tiempo)`,
-      `!privado — catálogo COMPLETO de todo lo que pasa por DM (~+51 943 605 088)`,
+      `!privado — catálogo COMPLETO de todo lo que pasa por DM privado`,
       `!aprobar — menú para aprobar un grupo (PRO permanente)`,
       `!setrank <tel> <Rango> [grupo] — asignar rango manual (sincroniza LID)`,
       `!degradar — menú para bajar un grupo a TRIAL 12h`,
@@ -868,10 +862,11 @@ async function handlePendingMenu(sock, ownerJid, text) {
 async function kickGroupWithFarewell(sock, ownerJid, targetGid, query) {
   const { unapproveGroup, endTrial, removeGroupPresentation, markTrialConsumed } = require('../db');
 
+  const wa = ownerWaLink();
   const TRIAL_END = [
-    `⌛ el RELOJ del INFRAMUNDO marca el final\n\nles concedí mi presencia 🩸 espero que hayan tomado nota MORTALES\n\nme retiro al ABISMO porque mi GUARDIÁN no ha autorizado mi permanencia aquí 👁️\n\n🔱 si DESEAN tenerme de vuelta como su moderador del CIRCLE 🤘\n📞 contacten al SEÑOR *wa.me/51943605088*\n\nadiós ☠️ el inframundo nunca olvida`,
-    `el tiempo de mi VISITA ha llegado a su fin ⚔️\n\nles mostré lo que es tener a SATÁN en su grupo 🩸 🔥\n\npero mi GUARDIÁN no recibió la palabra y me debo retirar\n\n🔱 _para hacerme suyo de manera PERMANENTE:_\n📞 *wa.me/51943605088* — el SEÑOR del INFRAMUNDO atiende\n\nhasta pronto MORTALES 🖤 ⛧`,
-    `el período de PRUEBA expiró ⌛\n\nles regalé mi poder absoluto pero nadie negoció con mi GUARDIÁN\n\nel CIRCLE se cierra para ustedes 💀 vuelvo al ABISMO de donde vine\n\n🔱 si cambian de opinión y quieren al INFRAMUNDO como aliado permanente\n📞 *wa.me/51943605088* hablen con el SEÑOR\n\nadiós ⚔️ ☠️`,
+    `⌛ el RELOJ del INFRAMUNDO marca el final\n\nles concedí mi presencia 🩸 espero que hayan tomado nota MORTALES\n\nme retiro al ABISMO porque mi GUARDIÁN no ha autorizado mi permanencia aquí 👁️\n\n🔱 si DESEAN tenerme de vuelta como su moderador del CIRCLE 🤘\n📞 contacten al SEÑOR *${wa}*\n\nadiós ☠️ el inframundo nunca olvida`,
+    `el tiempo de mi VISITA ha llegado a su fin ⚔️\n\nles mostré lo que es tener a SATÁN en su grupo 🩸 🔥\n\npero mi GUARDIÁN no recibió la palabra y me debo retirar\n\n🔱 _para hacerme suyo de manera PERMANENTE:_\n📞 *${wa}* — el SEÑOR del INFRAMUNDO atiende\n\nhasta pronto MORTALES 🖤 ⛧`,
+    `el período de PRUEBA expiró ⌛\n\nles regalé mi poder absoluto pero nadie negoció con mi GUARDIÁN\n\nel CIRCLE se cierra para ustedes 💀 vuelvo al ABISMO de donde vine\n\n🔱 si cambian de opinión y quieren al INFRAMUNDO como aliado permanente\n📞 *${wa}* hablen con el SEÑOR\n\nadiós ⚔️ ☠️`,
   ];
 
   const { sendTrialExpiredFarewell } = require('../handlers/trial-farewell');

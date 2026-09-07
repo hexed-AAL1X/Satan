@@ -25,12 +25,11 @@ const { pickReaction } = require('./utils/reaction-emojis');
 const { setupScheduler, updateLastMessage, registerBattleVote, registerPollVote, onBattlePollVote, getBattlePollKey, hasBattle } = require('./scheduler');
 const { getStoredMessage, getPollUpdateContent } = require('./scheduler/battle-polls');
 const { sendWithTyping } = require('./utils/typing');
+const { OWNER_NUMBER, BOT_NUMBER, ownerJid, ownerWaLink } = require('./config');
 
 const AUTH_DIR = path.join(__dirname, '../auth_info_baileys');
 const GROUP_ID = process.env.GROUP_ID || '';
-const OWNER_NUMBER = '51943605088';
-const BOT_NUMBER = process.env.BOT_NUMBER || '51937761964';
-const OWNER_JID = `${OWNER_NUMBER}@s.whatsapp.net`;
+const OWNER_JID = ownerJid();
 
 // Intención del owner: próximo sticker va a qué banco
 let ownerStickerIntent = 'bienvenida';
@@ -48,24 +47,24 @@ const TRIAL_HOURS = 12;
 const TRIAL_MS = TRIAL_HOURS * 60 * 60 * 1000;
 
 const TRIAL_WELCOME = [
-  `⚔️ así que me han invocado sin la bendición del SEÑOR\n\nbien MORTALES les concedo *${TRIAL_HOURS} HORAS* de mi presencia para que sepan lo que es tener al INFRAMUNDO en su grupo 🩸\n\nexperimenten ⚡ aporten 🤘 reten al CIRCLE con sus aportes ☠️\n\ncuando el reloj marque el final ⌛ me retiraré salvo que mi guardián autorice lo contrario\n\n🔱 _para mantenerme contacten al GUARDIÁN del CIRCLE_\n📞 *wa.me/${OWNER_NUMBER}*\n\nempiecen la *PRUEBA* 🖤`,
+  `⚔️ así que me han invocado sin la bendición del SEÑOR\n\nbien MORTALES les concedo *${TRIAL_HOURS} HORAS* de mi presencia para que sepan lo que es tener al INFRAMUNDO en su grupo 🩸\n\nexperimenten ⚡ aporten 🤘 reten al CIRCLE con sus aportes ☠️\n\ncuando el reloj marque el final ⌛ me retiraré salvo que mi guardián autorice lo contrario\n\n🔱 _para mantenerme contacten al GUARDIÁN del CIRCLE_\n📞 *${ownerWaLink()}*\n\nempiecen la *PRUEBA* 🖤`,
 
-  `el INFRAMUNDO ha sido convocado por manos NO autorizadas 👁️\n\npero soy GENEROSO así que les regalo *${TRIAL_HOURS} HORAS* de mi poder absoluto ⚔️\n\nveán de lo que soy capaz ⛧ moderación 🩸 ranking 🔥 trivias batallas y MÁS\n\ncuando termine el tiempo desaparezco salvo que el GUARDIÁN del CIRCLE me autorice quedarme\n\n☠️ _negocien con el SEÑOR para mantenerme:_\n📞 *wa.me/${OWNER_NUMBER}*\n\nque comience la PRUEBA 🤘`,
+  `el INFRAMUNDO ha sido convocado por manos NO autorizadas 👁️\n\npero soy GENEROSO así que les regalo *${TRIAL_HOURS} HORAS* de mi poder absoluto ⚔️\n\nveán de lo que soy capaz ⛧ moderación 🩸 ranking 🔥 trivias batallas y MÁS\n\ncuando termine el tiempo desaparezco salvo que el GUARDIÁN del CIRCLE me autorice quedarme\n\n☠️ _negocien con el SEÑOR para mantenerme:_\n📞 *${ownerWaLink()}*\n\nque comience la PRUEBA 🤘`,
 
-  `interesante MOVIMIENTO mortales 🦇\n\nme han traído sin permiso pero el INFRAMUNDO no se queja se ADAPTA\n\nles otorgo *${TRIAL_HOURS} HORAS* de cortesía para que vean por qué soy LEGENDARIO ⚔️ 🩸\n\ndespués el SEÑOR decide si me quedo o vuelvo al ABISMO\n\n🔱 _quien quiera mantenerme que hable con mi GUARDIÁN_\n📞 *wa.me/${OWNER_NUMBER}*\n\nel reloj corre ⌛ aprovechen 🖤`,
+  `interesante MOVIMIENTO mortales 🦇\n\nme han traído sin permiso pero el INFRAMUNDO no se queja se ADAPTA\n\nles otorgo *${TRIAL_HOURS} HORAS* de cortesía para que vean por qué soy LEGENDARIO ⚔️ 🩸\n\ndespués el SEÑOR decide si me quedo o vuelvo al ABISMO\n\n🔱 _quien quiera mantenerme que hable con mi GUARDIÁN_\n📞 *${ownerWaLink()}*\n\nel reloj corre ⌛ aprovechen 🖤`,
 ];
 
 const TRIAL_END = [
-  `⌛ el RELOJ del INFRAMUNDO marca el final\n\nles concedí *${TRIAL_HOURS} HORAS* de mi presencia 🩸 espero que hayan tomado nota MORTALES\n\nme retiro al ABISMO porque mi GUARDIÁN no ha autorizado mi permanencia aquí 👁️\n\n🔱 si DESEAN tenerme de vuelta como su moderador del CIRCLE 🤘\n📞 contacten al SEÑOR *wa.me/${OWNER_NUMBER}*\n\nadiós ☠️ el inframundo nunca olvida`,
+  `⌛ el RELOJ del INFRAMUNDO marca el final\n\nles concedí *${TRIAL_HOURS} HORAS* de mi presencia 🩸 espero que hayan tomado nota MORTALES\n\nme retiro al ABISMO porque mi GUARDIÁN no ha autorizado mi permanencia aquí 👁️\n\n🔱 si DESEAN tenerme de vuelta como su moderador del CIRCLE 🤘\n📞 contacten al SEÑOR *${ownerWaLink()}*\n\nadiós ☠️ el inframundo nunca olvida`,
 
-  `el tiempo de mi VISITA ha llegado a su fin ⚔️\n\nfueron *${TRIAL_HOURS} HORAS* en las que les mostré lo que es tener a SATÁN en su grupo 🩸 🔥\n\npero mi GUARDIÁN no recibió la palabra y me debo retirar\n\n🔱 _para hacerme suyo de manera PERMANENTE:_\n📞 *wa.me/${OWNER_NUMBER}* — el SEÑOR del INFRAMUNDO atiende\n\nhasta pronto MORTALES 🖤 ⛧`,
+  `el tiempo de mi VISITA ha llegado a su fin ⚔️\n\nfueron *${TRIAL_HOURS} HORAS* en las que les mostré lo que es tener a SATÁN en su grupo 🩸 🔥\n\npero mi GUARDIÁN no recibió la palabra y me debo retirar\n\n🔱 _para hacerme suyo de manera PERMANENTE:_\n📞 *${ownerWaLink()}* — el SEÑOR del INFRAMUNDO atiende\n\nhasta pronto MORTALES 🖤 ⛧`,
 
-  `el período de PRUEBA expiró ⌛\n\nles regalé ${TRIAL_HOURS} horas de poder absoluto pero nadie negoció con mi GUARDIÁN\n\nel CIRCLE se cierra para ustedes 💀 vuelvo al ABISMO de donde vine\n\n🔱 si cambian de opinión y quieren al INFRAMUNDO como aliado permanente\n📞 *wa.me/${OWNER_NUMBER}* hablen con el SEÑOR\n\nadiós ⚔️ ☠️`,
+  `el período de PRUEBA expiró ⌛\n\nles regalé ${TRIAL_HOURS} horas de poder absoluto pero nadie negoció con mi GUARDIÁN\n\nel CIRCLE se cierra para ustedes 💀 vuelvo al ABISMO de donde vine\n\n🔱 si cambian de opinión y quieren al INFRAMUNDO como aliado permanente\n📞 *${ownerWaLink()}* hablen con el SEÑOR\n\nadiós ⚔️ ☠️`,
 ];
 
 const TRIAL_REJECT_GROUP = [
   `😤 no NO y NO ⚔️ creen que voy a repetir REGALOS a este CIRCLE 👁️\n\nYA acabaron su PRUEBA mortales esa puerta cerró 🔥 nadie ME arrastra gratis otra vez\n\nhablen con el SEÑOR si quieren NEGOCIAR 🤘 hasta nunca 💀`,
-  `QUÉ DESCARO 👁️ otra INVOCACIÓN después de gastar vuestra caricia de 12 horas ☠️\n\nel INFRAMUNDO no olvida y no perdona segunda dosis GRATIS 🔥 váyanse\n\ncontacten al GUARDIÁN *wa.me/${OWNER_NUMBER}* si pueden PAGAR con respeto ⛧`,
+  `QUÉ DESCARO 👁️ otra INVOCACIÓN después de gastar vuestra caricia de 12 horas ☠️\n\nel INFRAMUNDO no olvida y no perdona segunda dosis GRATIS 🔥 váyanse\n\ncontacten al GUARDIÁN *${ownerWaLink()}* si pueden PAGAR con respeto ⛧`,
   `insolencia PURA ⚔️ creen repetir EXPERIMENTO después de rechazar al amo del ABISMO 🩸\n\naquí terminó vuestra segunda oportunidad INEXISTENTE ☠️ adiós 🔥`,
 ];
 
@@ -96,7 +95,7 @@ async function rejectSecondTrialInvitation(sock, gid, adderJid) {
   const dm = pickRandomMsg(TRIAL_REJECT_OWNER_DM(groupName, addShort));
   const dmFinal = dm.includes('wa.me')
     ? dm
-    : `${dm}\n\n📞 *wa.me/${OWNER_NUMBER}*`;
+    : `${dm}\n\n📞 *${ownerWaLink()}*`;
   try {
     await sock.sendMessage(OWNER_JID, { text: dmFinal });
   } catch (e) { console.error('[TRIAL-DENY-DM]', e.message); }
